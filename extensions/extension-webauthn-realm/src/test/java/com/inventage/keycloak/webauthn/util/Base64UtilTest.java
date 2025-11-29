@@ -1,0 +1,245 @@
+package com.inventage.keycloak.webauthn.util;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+
+import static org.assertj.core.api.Assertions.*;
+
+/**
+ * TDD Unit Tests for Base64 Utility
+ *
+ * Test Coverage:
+ * - Base64URL encoding/decoding
+ * - Standard Base64 encoding/decoding
+ * - Padding handling
+ * - Binary data encoding
+ * - Error handling for invalid input
+ */
+@DisplayName("Base64 Utility Tests")
+class Base64UtilTest {
+
+    @Test
+    @DisplayName("Should encode string to Base64URL without padding")
+    void testEncodeBase64Url_String() {
+        // Arrange
+        String input = "Hello, WebAuthn!";
+
+        // Act
+        String encoded = Base64Util.encodeBase64Url(input.getBytes(StandardCharsets.UTF_8));
+
+        // Assert
+        assertThat(encoded).isNotNull();
+        assertThat(encoded).doesNotContain("="); // No padding
+        assertThat(encoded).doesNotContain("+"); // URL-safe
+        assertThat(encoded).doesNotContain("/"); // URL-safe
+
+        // Verify can decode back
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+        assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("Should decode Base64URL string")
+    void testDecodeBase64Url_Valid() {
+        // Arrange
+        String original = "WebAuthn Challenge 123";
+        String encoded = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(original.getBytes(StandardCharsets.UTF_8));
+
+        // Act
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+
+        // Assert
+        assertThat(decoded).isNotNull();
+        assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("Should handle binary data encoding")
+    void testEncodeBase64Url_BinaryData() {
+        // Arrange - create binary data with various byte values
+        byte[] binaryData = new byte[256];
+        for (int i = 0; i < 256; i++) {
+            binaryData[i] = (byte) i;
+        }
+
+        // Act
+        String encoded = Base64Util.encodeBase64Url(binaryData);
+
+        // Assert
+        assertThat(encoded).isNotNull();
+        assertThat(encoded.length()).isGreaterThan(0);
+
+        // Verify round trip
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+        assertThat(decoded).isEqualTo(binaryData);
+    }
+
+    @Test
+    @DisplayName("Should encode to standard Base64 with padding")
+    void testEncodeBase64_WithPadding() {
+        // Arrange
+        String input = "Test";
+
+        // Act
+        String encoded = Base64Util.encodeBase64(input.getBytes(StandardCharsets.UTF_8));
+
+        // Assert
+        assertThat(encoded).isNotNull();
+        assertThat(encoded).endsWith("="); // Has padding
+
+        byte[] decoded = Base64Util.decodeBase64(encoded);
+        assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("Should decode standard Base64 with padding")
+    void testDecodeBase64_WithPadding() {
+        // Arrange
+        String encoded = "VGVzdA=="; // "Test" in Base64
+
+        // Act
+        byte[] decoded = Base64Util.decodeBase64(encoded);
+
+        // Assert
+        assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo("Test");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "",
+        "A",
+        "AB",
+        "ABC",
+        "ABCD",
+        "Hello World",
+        "The quick brown fox jumps over the lazy dog"
+    })
+    @DisplayName("Should handle different input lengths")
+    void testEncodeBase64Url_VariousLengths(String input) {
+        // Act
+        String encoded = Base64Util.encodeBase64Url(input.getBytes(StandardCharsets.UTF_8));
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+
+        // Assert
+        assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("Should handle empty byte array")
+    void testEncodeBase64Url_EmptyArray() {
+        // Arrange
+        byte[] empty = new byte[0];
+
+        // Act
+        String encoded = Base64Util.encodeBase64Url(empty);
+
+        // Assert
+        assertThat(encoded).isEmpty();
+
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+        assertThat(decoded).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should throw exception for null input on encode")
+    void testEncodeBase64Url_NullInput() {
+        // Act & Assert
+        assertThatThrownBy(() -> Base64Util.encodeBase64Url(null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Input cannot be null");
+    }
+
+    @Test
+    @DisplayName("Should throw exception for null input on decode")
+    void testDecodeBase64Url_NullInput() {
+        // Act & Assert
+        assertThatThrownBy(() -> Base64Util.decodeBase64Url(null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Input cannot be null");
+    }
+
+    @Test
+    @DisplayName("Should throw exception for invalid Base64URL string")
+    void testDecodeBase64Url_InvalidInput() {
+        // Arrange
+        String invalidBase64 = "This is not valid Base64!!!";
+
+        // Act & Assert
+        assertThatThrownBy(() -> Base64Util.decodeBase64Url(invalidBase64))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("Should convert Base64 to Base64URL")
+    void testConvertBase64ToBase64Url() {
+        // Arrange
+        String standardBase64 = "SGVsbG8rV29ybGQ/"; // Contains + and / characters
+
+        // Act
+        String base64Url = Base64Util.convertBase64ToBase64Url(standardBase64);
+
+        // Assert
+        assertThat(base64Url).doesNotContain("+");
+        assertThat(base64Url).doesNotContain("/");
+        assertThat(base64Url).doesNotContain("=");
+    }
+
+    @Test
+    @DisplayName("Should convert Base64URL to Base64")
+    void testConvertBase64UrlToBase64() {
+        // Arrange
+        String base64Url = "SGVsbG8tV29ybGQ_"; // Contains - and _ characters
+
+        // Act
+        String standardBase64 = Base64Util.convertBase64UrlToBase64(base64Url);
+
+        // Assert
+        assertThat(standardBase64).doesNotContain("-");
+        assertThat(standardBase64).doesNotContain("_");
+    }
+
+    @Test
+    @DisplayName("Should correctly encode WebAuthn challenge")
+    void testEncodeBase64Url_WebAuthnChallenge() {
+        // Arrange - typical 32-byte challenge
+        byte[] challenge = new byte[32];
+        for (int i = 0; i < 32; i++) {
+            challenge[i] = (byte) (i * 8);
+        }
+
+        // Act
+        String encoded = Base64Util.encodeBase64Url(challenge);
+
+        // Assert
+        assertThat(encoded.length()).isEqualTo(43); // 32 bytes = 43 chars base64url
+        assertThat(encoded).doesNotContain("=");
+
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+        assertThat(decoded).hasSize(32);
+        assertThat(decoded).isEqualTo(challenge);
+    }
+
+    @Test
+    @DisplayName("Should handle special characters in URL-safe encoding")
+    void testEncodeBase64Url_SpecialCharacters() {
+        // Arrange - data that would produce + and / in standard Base64
+        byte[] data = new byte[]{(byte) 0xFB, (byte) 0xFF, (byte) 0xBF, (byte) 0xFF};
+
+        // Act
+        String encoded = Base64Util.encodeBase64Url(data);
+
+        // Assert
+        assertThat(encoded).doesNotContain("+");
+        assertThat(encoded).doesNotContain("/");
+        assertThat(encoded).matches("[A-Za-z0-9_-]+"); // Only URL-safe characters
+
+        byte[] decoded = Base64Util.decodeBase64Url(encoded);
+        assertThat(decoded).isEqualTo(data);
+    }
+}
