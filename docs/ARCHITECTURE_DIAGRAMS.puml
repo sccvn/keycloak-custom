@@ -1,0 +1,622 @@
+@startuml Keycloak_Custom_System_Architecture
+!define ABS(x) ((x) < 0 ? (-(x)) : (x))
+skinparam linetype polyline
+title Keycloak Custom - Complete System Architecture
+
+package "Keycloak Custom System" {
+
+  package "Client Layer" {
+    [Web Browser] as client_web
+    [Mobile App] as client_mobile
+    [SPA Application] as client_spa
+  }
+
+  package "Load Balancer & Ingress" {
+    [Kubernetes Ingress] as k8s_ingress
+    [Docker Compose Network] as dc_network
+  }
+
+  package "Keycloak Application Layer" {
+
+    package "Keycloak 26.4.6 (Quarkus Runtime)" {
+      [OIDC/OAuth2 Endpoint] as oidc_endpoint
+      [SAML Endpoint] as saml_endpoint
+      [Admin Console] as admin_console
+      [Account Console] as account_console
+      [Metrics Endpoint] as metrics_endpoint
+      [Health Endpoint] as health_endpoint
+    }
+
+    package "Custom SPI Implementations" {
+      [NoOperationAuthenticator] as auth_noop
+      [NoOperationFormAuthenticator] as auth_form
+      [NoOperationProtocolMapper] as mapper_protocol
+      [InvitationThemeProvider] as theme_provider
+    }
+
+    package "Custom Themes" {
+      [Inventage Theme] as theme_inventage
+      [Inventage v2 Theme] as theme_inventage_v2
+    }
+
+    package "Core Services" {
+      [Session Manager] as session_mgr
+      [User Store] as user_store
+      [Realm Manager] as realm_mgr
+      [Cache Manager] as cache_mgr
+      [Logging Service] as log_service
+    }
+  }
+
+  package "Persistence Layer" {
+    [PostgreSQL Database] as postgres
+    [Database Schemas] as db_schemas
+  }
+
+  package "Supporting Services" {
+    [Mailpit (Email Testing)] as mailpit
+  }
+
+  package "Deployment Orchestration" {
+
+    package "Container Building" {
+      [Maven Build] as mvn_build
+      [Docker Multi-Stage Build] as docker_build
+      [Multi-Arch Image Builder] as multiarch_build
+    }
+
+    package "Container Registry" {
+      [GHCR Repository] as ghcr
+    }
+
+    package "Kubernetes Deployment" {
+      [Helm Chart] as helm_chart
+      [Kubernetes ConfigMap] as k8s_configmap
+      [Kubernetes Secret] as k8s_secret
+      [Kubernetes Deployment] as k8s_deployment
+      [Kubernetes Service] as k8s_service
+      [Kubernetes Pod] as k8s_pod
+    }
+
+    package "Docker Compose" {
+      [Docker Compose Orchestrator] as dc_orchestrator
+      [Keycloak Container] as dc_keycloak
+      [PostgreSQL Container] as dc_postgres
+      [Mailpit Container] as dc_mailpit
+    }
+  }
+
+  package "CI/CD Pipeline" {
+    [GitHub Actions] as github_actions
+    [Maven Test] as mvn_test
+    [Image Build & Push] as image_push
+    [Helm Package] as helm_package
+  }
+}
+
+' Client connections
+client_web --> dc_network : HTTP/HTTPS
+client_mobile --> dc_network : HTTP/HTTPS
+client_spa --> dc_network : HTTP/HTTPS
+
+client_web --> k8s_ingress : HTTP/HTTPS
+client_mobile --> k8s_ingress : HTTP/HTTPS
+client_spa --> k8s_ingress : HTTP/HTTPS
+
+' Network to application
+dc_network --> oidc_endpoint : Route
+k8s_ingress --> oidc_endpoint : Route
+
+' Keycloak endpoints
+oidc_endpoint --> auth_noop : Auth Flow
+oidc_endpoint --> auth_form : Form Auth
+oidc_endpoint --> mapper_protocol : Token Mapping
+
+admin_console --> realm_mgr : Config
+account_console --> user_store : User Data
+
+' Theme integration
+admin_console --> theme_inventage : Render
+admin_console --> theme_inventage_v2 : Render
+theme_provider --> theme_inventage : Load Resources
+theme_provider --> theme_inventage_v2 : Load Resources
+
+' Core services
+oidc_endpoint --> session_mgr : Manage
+auth_noop --> user_store : Lookup
+mapper_protocol --> cache_mgr : Cache Claims
+oidc_endpoint --> log_service : Log Events
+
+' Persistence
+user_store --> postgres : Query/Store
+realm_mgr --> postgres : Query/Store
+session_mgr --> postgres : Persist
+cache_mgr --> postgres : Cache
+
+' Mailpit integration
+oidc_endpoint --> mailpit : Send Emails
+
+' Build pipeline
+mvn_build --> docker_build : Artifacts
+docker_build --> multiarch_build : Docker
+multiarch_build --> ghcr : Push Image
+
+' Kubernetes deployment
+helm_chart --> k8s_configmap : Config
+helm_chart --> k8s_secret : Secrets
+helm_chart --> k8s_deployment : Deploy
+k8s_deployment --> k8s_pod : Create
+k8s_pod --> ghcr : Pull Image
+k8s_pod --> postgres : Connect
+k8s_service --> k8s_pod : Balance
+
+' Docker Compose
+dc_orchestrator --> dc_keycloak : Orchestrate
+dc_orchestrator --> dc_postgres : Orchestrate
+dc_orchestrator --> dc_mailpit : Orchestrate
+dc_keycloak --> dc_postgres : Connect
+dc_keycloak --> dc_mailpit : Connect
+
+' CI/CD
+github_actions --> mvn_test : Test
+mvn_test --> image_push : Pass
+image_push --> helm_package : Build
+helm_package --> ghcr : Publish
+
+@enduml
+
+@startuml Keycloak_Build_Dependency_Graph
+title Keycloak Custom - Module Build Dependency Graph
+
+package "Maven Modules" {
+  [server] as m_server
+  [config] as m_config
+  [extension-no-op-authenticator] as m_auth_ext
+  [extension-no-op-protocol-mapper] as m_mapper_ext
+  [inventage] as m_theme_inv
+  [inventage.v2] as m_theme_inv2
+  [container] as m_container
+  [docker-compose] as m_docker_compose
+  [helm] as m_helm
+}
+
+' Dependencies
+m_server --> m_config
+m_server --> m_auth_ext
+m_server --> m_mapper_ext
+m_server --> m_theme_inv
+m_server --> m_theme_inv2
+m_config --> m_container
+m_auth_ext --> m_container
+m_mapper_ext --> m_container
+m_theme_inv --> m_container
+m_theme_inv2 --> m_container
+m_container --> m_docker_compose
+m_container --> m_helm
+
+note left of m_server
+  Step 1: Download base distribution
+  Keycloak 26.4.6 from Maven Central
+end note
+
+note left of m_config
+  Step 2: Bundle configuration
+  keycloak.conf, realm definitions, startup scripts
+end note
+
+note left of m_auth_ext
+  Step 3a: Build authenticator extension
+  SPI implementation with @AutoService
+end note
+
+note left of m_mapper_ext
+  Step 3b: Build protocol mapper
+  OIDC claims injection
+end note
+
+note left of m_theme_inv
+  Step 4a: Build Inventage theme
+  Custom login/account UI
+end note
+
+note left of m_container
+  Step 5: Build Docker image
+  Multi-stage, multi-arch (amd64/arm64)
+end note
+
+note left of m_docker_compose
+  Step 6a: Docker Compose
+  Local development environment
+end note
+
+note left of m_helm
+  Step 6b: Helm Chart
+  Kubernetes deployment
+end note
+
+@enduml
+
+@startuml Keycloak_Authentication_Flow
+title Keycloak Custom - Authentication Flow with No-Op Authenticator
+
+participant User as U
+participant "OIDC Endpoint" as EP
+participant "Auth Flow Executor" as AFE
+participant "NoOperationAuthenticator" as NOA
+participant "Session Manager" as SM
+participant "Token Generator" as TG
+participant "Protocol Mapper" as PM
+participant "Database" as DB
+
+U -> EP: POST /auth/realms/master/protocol/openid-connect/auth\n?client_id=app&response_type=code
+EP -> AFE: Initiate authentication flow
+AFE -> NOA: Execute authenticator
+NOA -> SM: Validate session/user
+SM -> DB: Check user exists
+DB --> SM: User found/verified
+SM --> NOA: Session valid
+NOA -> AFE: Complete authentication (no-op)
+AFE -> TG: Generate tokens
+TG -> PM: Apply protocol mappers
+PM -> PM: Inject custom claims\n(NoOperationProtocolMapper)
+PM --> TG: Claims injected
+TG -> TG: Sign token (private key)
+TG --> EP: Return token
+EP --> U: Redirect with code/token
+
+note over NOA
+  No credential validation
+  Demonstrates SPI pattern
+  For testing/development only
+end note
+
+note over PM
+  Injects claims into:
+  - ID Token
+  - Access Token
+  - UserInfo response
+end note
+
+@enduml
+
+@startuml Keycloak_Protocol_Mapper_Flow
+title Keycloak Custom - Protocol Mapper Token Transformation
+
+participant "Token\nGenerator" as TG
+participant "OIDC Token\nMapper" as OTM
+participant "NoOp Mapper\nChain" as NOM
+participant "Claim\nExtractor" as CX
+participant "Token\nSigner" as TS
+participant "Client\nApplication" as CA
+
+TG -> OTM: Start mapper pipeline
+OTM -> NOM: Execute custom mapper
+NOM -> NOM: Read mapper config
+NOM -> CX: Extract claims from user
+CX -> CX: Gather user attributes\nroles, groups, custom
+CX --> NOM: Return claims
+NOM -> NOM: Process claims\n(filter/transform)
+NOM -> OTM: Return modified claims
+OTM -> OTM: Apply default mappers
+OTM -> TS: Token with all claims
+TS -> TS: Sign with private key
+TS --> CA: Send signed JWT
+CA -> CA: Validate signature\nVerify claims\nAccess protected resources
+
+note over NOM
+  Custom mapper can:
+  - Add claims
+  - Remove claims
+  - Transform values
+  - Conditional logic
+end note
+
+@enduml
+
+@startuml Keycloak_Deployment_Topology
+title Keycloak Custom - Deployment Options
+
+package "Development Environment" {
+  package "Docker Compose" {
+    [Keycloak\nContainer] as dev_kc
+    [PostgreSQL\nContainer] as dev_db
+    [Mailpit\nContainer] as dev_mail
+    [Docker\nNetwork] as dev_net
+
+    dev_kc -(0- dev_net
+    dev_db -(0- dev_net
+    dev_mail -(0- dev_net
+  }
+}
+
+package "Kubernetes Cluster" {
+
+  package "Ingress/Load Balancer" {
+    [Ingress\nController] as k8s_ingress_ctrl
+    [TLS\nTermination] as k8s_tls
+  }
+
+  package "Keycloak Namespace" {
+    [Keycloak Pod 1] as k8s_pod1
+    [Keycloak Pod 2] as k8s_pod2
+    [Keycloak Pod 3] as k8s_pod3
+    [Service\n(ClusterIP)] as k8s_svc
+    [ConfigMap] as k8s_cm
+    [Secret] as k8s_sec
+  }
+
+  package "External Database" {
+    [PostgreSQL\nReplica Set] as k8s_db
+  }
+
+  k8s_ingress_ctrl --> k8s_tls
+  k8s_tls --> k8s_svc
+  k8s_svc --> k8s_pod1
+  k8s_svc --> k8s_pod2
+  k8s_svc --> k8s_pod3
+  k8s_cm -.-> k8s_pod1
+  k8s_cm -.-> k8s_pod2
+  k8s_cm -.-> k8s_pod3
+  k8s_sec -.-> k8s_pod1
+  k8s_sec -.-> k8s_pod2
+  k8s_sec -.-> k8s_pod3
+  k8s_pod1 --> k8s_db
+  k8s_pod2 --> k8s_db
+  k8s_pod3 --> k8s_db
+}
+
+package "CI/CD Pipeline" {
+  [GitHub\nActions] as gh_actions
+  [Maven\nBuild] as mvn
+  [Docker\nBuild] as docker
+  [Image\nRegistry\nGHCR] as ghcr_reg
+  [Helm\nRepository] as helm_repo
+
+  gh_actions --> mvn
+  mvn --> docker
+  docker --> ghcr_reg
+  mvn --> helm_repo
+}
+
+dev_kc --> ghcr_reg : Pull Image
+k8s_pod1 --> ghcr_reg : Pull Image
+k8s_pod2 --> ghcr_reg : Pull Image
+k8s_pod3 --> ghcr_reg : Pull Image
+
+note over dev_kc
+  Local testing
+  Full stack
+  Mailpit included
+end note
+
+note over k8s_pod1
+  Production HA
+  Auto-scaling
+  Health checks
+end note
+
+@enduml
+
+@startuml Keycloak_Custom_Extension_Architecture
+title Keycloak Custom - Extension Architecture (SPI Pattern)
+
+package "Keycloak Core" {
+  [Authenticator\nSPI] as spi_auth
+  [ProtocolMapper\nSPI] as spi_mapper
+  [ThemeProvider\nSPI] as spi_theme
+}
+
+package "Custom Extensions" {
+
+  package "authenticator-extension" {
+    [NoOperationAuthenticator] as impl_auth
+    [NoOperationFormAuthenticator] as impl_form_auth
+    [NoOperationAuthenticatorFactory] as factory_auth
+    [InvitationThemeProviderFactory] as factory_theme
+  }
+
+  package "protocol-mapper-extension" {
+    [NoOperationProtocolMapper] as impl_mapper
+    [ProtocolMapperFactory] as factory_mapper
+  }
+}
+
+package "Service Discovery" {
+  [Java SPI\nMechanism] as java_spi
+  [META-INF/services] as services_file
+}
+
+spi_auth <|.. impl_auth
+spi_auth <|.. impl_form_auth
+spi_mapper <|.. impl_mapper
+spi_theme <|.. factory_theme
+
+impl_auth --> factory_auth
+impl_form_auth --> factory_auth
+impl_mapper --> factory_mapper
+factory_theme --> factory_theme
+
+factory_auth --> java_spi : Auto-discovered
+factory_mapper --> java_spi : Auto-discovered
+factory_theme --> java_spi : Auto-discovered
+
+java_spi --> services_file
+services_file --> services_file : Lists:\nNoOperationAuthenticatorFactory\nNoOperationProtocolMapper\nInvitationThemeProviderFactory
+
+note over impl_auth
+  Null Object Pattern
+  Bypasses validation
+  Demo/Testing only
+end note
+
+note over impl_mapper
+  Claims Injection
+  Configurable per client
+  Supports OIDC tokens
+end note
+
+note over java_spi
+  @AutoService annotation
+  Auto-generates service files
+  Keycloak discovers at startup
+end note
+
+@enduml
+
+@startuml Keycloak_Data_Storage_Schema
+title Keycloak Custom - Data Storage & Persistence
+
+database "PostgreSQL\nKeycloak Database" as db {
+
+  package "Realm Tables" {
+    table "REALM" {
+      REALM_ID : UUID <<pk>>
+      NAME : VARCHAR
+      ENABLED : BOOLEAN
+    }
+
+    table "CLIENT" {
+      CLIENT_ID : UUID <<pk>>
+      REALM_ID : UUID <<fk>>
+      CLIENT_ID_KEY : VARCHAR
+      ENABLED : BOOLEAN
+    }
+  }
+
+  package "User Tables" {
+    table "USER_ENTITY" {
+      ID : UUID <<pk>>
+      REALM_ID : UUID <<fk>>
+      USERNAME : VARCHAR
+      EMAIL : VARCHAR
+      EMAIL_VERIFIED : BOOLEAN
+      ENABLED : BOOLEAN
+    }
+
+    table "USER_ATTRIBUTE" {
+      ID : UUID <<pk>>
+      USER_ID : UUID <<fk>>
+      NAME : VARCHAR
+      VALUE : VARCHAR
+    }
+
+    table "USER_ROLE_MAPPING" {
+      USER_ID : UUID <<fk>>
+      ROLE_ID : UUID <<fk>>
+    }
+  }
+
+  package "Role Tables" {
+    table "KEYCLOAK_ROLE" {
+      ID : UUID <<pk>>
+      REALM_ID : UUID <<fk>>
+      CLIENT_ID : UUID <<fk>>
+      NAME : VARCHAR
+    }
+  }
+
+  package "Session Tables" {
+    table "USER_SESSION" {
+      ID : VARCHAR <<pk>>
+      REALM_ID : UUID <<fk>>
+      USER_ID : UUID <<fk>>
+      LOGIN_USERNAME : VARCHAR
+      CREATED_ON : BIGINT
+      LAST_SESSION_REFRESH : BIGINT
+    }
+
+    table "CLIENT_SESSION" {
+      ID : VARCHAR <<pk>>
+      SESSION_ID : VARCHAR <<fk>>
+      CLIENT_ID : UUID <<fk>>
+      CREATED_ON : BIGINT
+    }
+  }
+
+  REALM ||--o{ CLIENT
+  REALM ||--o{ USER_ENTITY
+  REALM ||--o{ KEYCLOAK_ROLE
+  REALM ||--o{ USER_SESSION
+  USER_ENTITY ||--o{ USER_ATTRIBUTE
+  USER_ENTITY ||--o{ USER_ROLE_MAPPING
+  KEYCLOAK_ROLE ||--o{ USER_ROLE_MAPPING
+  USER_SESSION ||--o{ CLIENT_SESSION
+  CLIENT ||--o{ CLIENT_SESSION
+}
+
+note right of db
+  Schema auto-created by Keycloak
+  on first startup
+  Supports multi-tenancy via REALM_ID
+end note
+
+@enduml
+
+@startuml Keycloak_Configuration_Layers
+title Keycloak Custom - Configuration Management Layers
+
+cloud "Kubernetes\nCluster" as k8s_cloud {
+  package "Configuration Layer 1: Kubernetes ConfigMap" {
+    [keycloak.conf] as k8s_config
+    [realm.json] as k8s_realm
+  }
+
+  package "Configuration Layer 2: Kubernetes Secret" {
+    [DB_PASSWORD] as k8s_db_pass
+    [ADMIN_PASSWORD] as k8s_admin_pass
+  }
+}
+
+cloud "Container\nImage" as container_cloud {
+  package "Configuration Layer 2: Build-Time (Baked into image)" {
+    [keycloak.conf] as build_config
+    [theme JAR files] as build_themes
+    [extension JARs] as build_exts
+  }
+}
+
+cloud "Runtime\nEnvironment" as runtime_cloud {
+  package "Configuration Layer 3: Runtime Environment Variables" {
+    [KC_DB_URL] as env_db_url
+    [KC_HOSTNAME] as env_hostname
+    [KC_HTTP_ENABLED] as env_http
+  }
+
+  package "Configuration Layer 4: Database (Realm JSON)" {
+    [Realm Definition] as db_realm
+    [Client Configuration] as db_client
+    [User Data] as db_user
+  }
+}
+
+k8s_cloud --> container_cloud : Mount as volumes
+container_cloud --> runtime_cloud : Container startup
+runtime_cloud --> db_realm : keycloak-config-cli import
+runtime_cloud --> db_client : Admin API
+runtime_cloud --> db_user : User Federation
+
+note left of k8s_config
+  1. Non-sensitive config
+  2. Updated via ConfigMap
+  3. No restart needed
+end note
+
+note left of k8s_db_pass
+  2. Sensitive data
+  3. Injected as env vars
+  4. Not stored on disk
+end note
+
+note left of build_config
+  3. Build-time defaults
+  5. Baked into image
+  6. Can be overridden
+end note
+
+note left of env_db_url
+  4. Runtime overrides
+  5. Highest precedence
+  6. Environment-specific
+end note
+
+@enduml

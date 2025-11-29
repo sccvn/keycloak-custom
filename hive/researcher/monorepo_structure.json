@@ -1,0 +1,369 @@
+{
+  "project_name": "Keycloak Custom",
+  "project_type": "Maven Multi-Module Monorepo",
+  "version": "1.0.0-SNAPSHOT",
+  "keycloak_version": "26.4.6",
+  "java_version": "21",
+  "total_files": 99,
+
+  "root_structure": {
+    "directories": [
+      ".build-tools",
+      ".claude",
+      ".claude-flow",
+      ".docs",
+      ".github",
+      ".hive-mind",
+      ".idea",
+      ".mvn",
+      ".swarm",
+      "config",
+      "container",
+      "coordination",
+      "docker-compose",
+      "docs",
+      "extensions",
+      "helm",
+      "hive",
+      "memory",
+      "server",
+      "target",
+      "themes"
+    ],
+    "key_files": [
+      "pom.xml",
+      "README.md",
+      "CLAUDE.md",
+      "LICENSE",
+      ".gitignore",
+      ".mcp.json",
+      ".tool-versions",
+      "mvnw",
+      "mvnw.cmd",
+      "claude-flow"
+    ]
+  },
+
+  "maven_modules": [
+    {
+      "name": "server",
+      "path": "/home/tuanna47/workspace/keycloak-custom/server",
+      "purpose": "Provides Keycloak installation for local development & testing",
+      "type": "pom",
+      "build_order": 1
+    },
+    {
+      "name": "config",
+      "path": "/home/tuanna47/workspace/keycloak-custom/config",
+      "purpose": "Build stage configuration and Keycloak setup scripts",
+      "type": "jar",
+      "build_order": 2,
+      "sub_resources": [
+        "keycloak/conf - Build configuration files",
+        "keycloak/setup - Setup scripts and realm configurations",
+        "keycloak/bin - Custom scripts including kc-with-setup.sh"
+      ]
+    },
+    {
+      "name": "extensions",
+      "path": "/home/tuanna47/workspace/keycloak-custom/extensions",
+      "purpose": "Custom Keycloak SPI implementations",
+      "type": "pom",
+      "build_order": 3,
+      "sub_modules": [
+        {
+          "name": "extension-no-op-authenticator",
+          "purpose": "Sample authenticator extension with theme provider",
+          "java_sources": [
+            "NoOperationFormAuthenticator",
+            "NoOperationFormAuthenticatorFactory",
+            "NoOperationFormModel",
+            "NoOperationAuthenticator",
+            "NoOperationAuthenticatorFactory",
+            "InvitationClasspathThemeProviderFactory"
+          ]
+        },
+        {
+          "name": "extension-no-op-protocol-mapper",
+          "purpose": "Sample protocol mapper extension",
+          "java_sources": [
+            "NoOperationProtocolMapper"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "themes",
+      "path": "/home/tuanna47/workspace/keycloak-custom/themes",
+      "purpose": "Custom themes for Keycloak UI",
+      "type": "jar",
+      "build_order": 4,
+      "theme_variants": [
+        {
+          "name": "inventage",
+          "types": ["login", "common"],
+          "files": [
+            "sms-config.ftl",
+            "number-authentication-entry.ftl",
+            "number-authentication.ftl",
+            "login-sms.ftl",
+            "messages_de.properties",
+            "messages_en.properties",
+            "theme.properties",
+            "styles.css",
+            "common.css",
+            "sanitize.css"
+          ]
+        },
+        {
+          "name": "inventage.v2",
+          "types": ["account"],
+          "files": [
+            "styles.css",
+            "messages_de.properties",
+            "messages_en.properties",
+            "theme.properties"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "container",
+      "path": "/home/tuanna47/workspace/keycloak-custom/container",
+      "purpose": "Creates custom Docker image for Keycloak",
+      "type": "pom",
+      "build_order": 5,
+      "dockerfile": "/home/tuanna47/workspace/keycloak-custom/container/src/main/resources/Dockerfile",
+      "base_image": "quay.io/keycloak/keycloak:26.4.6",
+      "registry": "ghcr.io/inventage/keycloak-custom/",
+      "image_name": "com.inventage.keycloak.custom.container"
+    },
+    {
+      "name": "docker-compose",
+      "path": "/home/tuanna47/workspace/keycloak-custom/docker-compose",
+      "purpose": "Docker Compose configurations for local testing",
+      "type": "pom",
+      "build_order": 6,
+      "compose_files": [
+        {
+          "path": "/home/tuanna47/workspace/keycloak-custom/docker-compose/src/main/resources/docker-compose.yml",
+          "purpose": "Main Keycloak container orchestration",
+          "services": ["keycloak"],
+          "networks": ["keycloak"],
+          "ports": ["8080:8080", "8443:8443"],
+          "env_files": [
+            "keycloak.common.env",
+            "keycloak.specific.env",
+            "secrets.env"
+          ]
+        },
+        {
+          "path": "/home/tuanna47/workspace/keycloak-custom/docker-compose/mailpit/docker-compose.yml",
+          "purpose": "Mail testing service"
+        },
+        {
+          "path": "/home/tuanna47/workspace/keycloak-custom/docker-compose/postgres/docker-compose.yml",
+          "purpose": "PostgreSQL database service"
+        }
+      ]
+    },
+    {
+      "name": "helm",
+      "path": "/home/tuanna47/workspace/keycloak-custom/helm",
+      "purpose": "Kubernetes Helm chart for deployment",
+      "type": "helm",
+      "build_order": 7,
+      "chart_directory": "src/generated/keycloak-custom-chart",
+      "helm_version": "3.19.2",
+      "registry": "ghcr.io/inventage/keycloak-custom",
+      "dependencies": ["Codecentric Helm Charts"]
+    }
+  ],
+
+  "ci_cd": {
+    "platform": "GitHub Actions",
+    "workflow_file": "/home/tuanna47/workspace/keycloak-custom/.github/workflows/build-pipeline.yml",
+    "workflow_name": "Build Pipeline",
+    "triggers": {
+      "push": ["main"],
+      "pull_request": ["main"]
+    },
+    "jobs": [
+      {
+        "name": "build",
+        "runner": "ubuntu-latest",
+        "steps": [
+          "Checkout code",
+          "Set up JDK 21",
+          "Version replacement with date/build/commit",
+          "Maven build with multi-arch support",
+          "Push Docker images to GHCR",
+          "Push Helm charts to GHCR",
+          "Clean up outdated Docker images (keep 5)",
+          "Clean up outdated Helm charts (keep 5)"
+        ]
+      }
+    ],
+    "registry_authentication": "GitHub Token (GITHUB_ACTOR/GITHUB_TOKEN)"
+  },
+
+  "build_tools": {
+    "build_system": "Maven 3.6.0+",
+    "plugins": [
+      "maven-enforcer-plugin",
+      "maven-compiler-plugin",
+      "maven-surefire-plugin",
+      "maven-failsafe-plugin",
+      "maven-dependency-plugin",
+      "maven-resources-plugin",
+      "maven-assembly-plugin",
+      "maven-antrun-plugin",
+      "docker-maven-plugin (fabric8)",
+      "helm-maven-plugin (kokuwa)"
+    ],
+    "multi_arch_support": true,
+    "platforms": ["linux/arm64", "linux/amd64"]
+  },
+
+  "dependencies": {
+    "external": [
+      {
+        "name": "org.keycloak:keycloak-quarkus-dist",
+        "version": "26.4.6",
+        "type": "zip"
+      },
+      {
+        "name": "org.keycloak:keycloak-parent",
+        "version": "26.4.6",
+        "scope": "import"
+      },
+      {
+        "name": "io.quarkus:quarkus-bootstrap-runner",
+        "version": "3.25.2"
+      },
+      {
+        "name": "com.github.dasniko:testcontainers-keycloak",
+        "version": "3.7.0",
+        "scope": "test"
+      },
+      {
+        "name": "org.testcontainers:postgresql",
+        "version": "1.21.1",
+        "scope": "test"
+      },
+      {
+        "name": "com.google.auto.service:auto-service-annotations",
+        "version": "1.0.1",
+        "purpose": "SPI registration by annotation"
+      }
+    ],
+    "internal": [
+      {
+        "module": "server",
+        "dependents": ["config", "extensions", "themes"]
+      },
+      {
+        "module": "config",
+        "dependents": ["container"]
+      },
+      {
+        "module": "extensions",
+        "dependents": ["container"]
+      },
+      {
+        "module": "themes",
+        "dependents": ["container"]
+      }
+    ]
+  },
+
+  "configuration_management": {
+    "keycloak_config_tool": "keycloak-config-cli:26.1.0_v6.4.0",
+    "admin_cli": "kcadm",
+    "bootstrap_process": {
+      "first_run": [
+        "Create temporary bootstrap admin user",
+        "Create temporary bootstrap admin client",
+        "Import master realm configuration",
+        "Create permanent service account client (keycloak-config-cli)",
+        "Configure realm settings"
+      ],
+      "subsequent_runs": [
+        "Use permanent service account client",
+        "Apply realm configurations",
+        "Update existing resources"
+      ]
+    },
+    "environment_variables": [
+      "KC_BOOTSTRAP_ADMIN_USERNAME",
+      "KC_BOOTSTRAP_ADMIN_PASSWORD",
+      "KC_BOOTSTRAP_ADMIN_CLIENT_ID",
+      "KC_BOOTSTRAP_ADMIN_CLIENT_SECRET",
+      "KEYCLOAK_CONFIG_CLI_CLIENT_ID",
+      "KEYCLOAK_CONFIG_CLI_CLIENT_SECRET",
+      "KEYCLOAK_GRANT_TYPE",
+      "KEYCLOAK_CLIENTID",
+      "KEYCLOAK_CLIENTSECRET"
+    ]
+  },
+
+  "testing": {
+    "unit_tests": {
+      "plugin": "maven-surefire-plugin",
+      "excluded_groups": ["integration"]
+    },
+    "integration_tests": {
+      "plugin": "maven-failsafe-plugin",
+      "included_groups": ["integration"],
+      "annotation": "@Tag(\"integration\")"
+    },
+    "test_containers": [
+      "Keycloak",
+      "PostgreSQL"
+    ]
+  },
+
+  "development_tools": {
+    "ai_orchestration": [
+      "Claude Code",
+      "Claude Flow MCP",
+      "Hive Mind coordination"
+    ],
+    "version_control": "Git",
+    "java_manager": ".tool-versions (asdf compatible)"
+  },
+
+  "documentation_files": [
+    {
+      "path": "/home/tuanna47/workspace/keycloak-custom/README.md",
+      "purpose": "Main project documentation and setup instructions"
+    },
+    {
+      "path": "/home/tuanna47/workspace/keycloak-custom/CLAUDE.md",
+      "purpose": "Claude Code configuration and SPARC development environment"
+    },
+    {
+      "path": "/home/tuanna47/workspace/keycloak-custom/.docs/CODEBASE_ANALYSIS.md",
+      "purpose": "Codebase analysis documentation"
+    },
+    {
+      "path": "/home/tuanna47/workspace/keycloak-custom/.hive-mind/README.md",
+      "purpose": "Hive Mind coordination documentation"
+    },
+    {
+      "path": "/home/tuanna47/workspace/keycloak-custom/helm/README.md",
+      "purpose": "Helm chart documentation"
+    }
+  ],
+
+  "file_statistics": {
+    "total_project_files": 99,
+    "pom_files": 10,
+    "java_source_files": 7,
+    "docker_compose_files": 3,
+    "dockerfiles": 1,
+    "helm_charts": 2,
+    "theme_files": 14,
+    "configuration_files": 25
+  }
+}

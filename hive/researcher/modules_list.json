@@ -1,0 +1,316 @@
+{
+  "maven_modules": {
+    "total_count": 7,
+    "modules": [
+      {
+        "id": "server",
+        "artifactId": "server",
+        "packaging": "pom",
+        "path": "server",
+        "purpose": "Keycloak installation for local development & testing",
+        "provides": [
+          "Base Keycloak distribution (26.4.6)",
+          "Target directory structure",
+          "Providers directory",
+          "Themes directory"
+        ],
+        "dependencies": [],
+        "build_phase": "First - Foundation"
+      },
+      {
+        "id": "config",
+        "artifactId": "config",
+        "packaging": "jar",
+        "path": "config",
+        "purpose": "Build stage configuration and Keycloak setup",
+        "provides": [
+          "keycloak.conf - Build configuration",
+          "Setup scripts (kc-with-setup.sh)",
+          "Realm configurations (JSON)",
+          "Bootstrap process scripts",
+          "Client setup scripts"
+        ],
+        "directories": {
+          "conf": "Keycloak configuration files",
+          "setup": "Realm and client setup JSON files",
+          "bin": "Custom execution scripts",
+          "bin/client": "Client CLI tools"
+        },
+        "dependencies": ["server"],
+        "build_phase": "Second - Configuration"
+      },
+      {
+        "id": "extensions",
+        "artifactId": "extensions",
+        "packaging": "pom",
+        "path": "extensions",
+        "purpose": "Parent module for Keycloak SPI extensions",
+        "sub_modules": [
+          "extension-no-op-authenticator",
+          "extension-no-op-protocol-mapper"
+        ],
+        "provides": [
+          "Custom authenticators",
+          "Custom protocol mappers",
+          "Theme providers",
+          "SPI implementations"
+        ],
+        "dependencies": ["server"],
+        "build_phase": "Third - Extensions"
+      },
+      {
+        "id": "extension-no-op-authenticator",
+        "artifactId": "extension-no-op-authenticator",
+        "packaging": "jar",
+        "path": "extensions/extension-no-op-authenticator",
+        "parent": "extensions",
+        "purpose": "Sample no-operation authenticator extension",
+        "provides": [
+          "NoOperationFormAuthenticator - Form-based auth",
+          "NoOperationAuthenticator - Simple auth",
+          "InvitationClasspathThemeProvider - Theme integration"
+        ],
+        "java_packages": [
+          "com.inventage.keycloak.noopformauthenticator.infrastructure.authenticator",
+          "com.inventage.keycloak.noopformauthenticator.infrastructure.theme",
+          "com.inventage.keycloak.noopauthenticator.infrastructure.authenticator"
+        ],
+        "deployment_target": "../server/target/keycloak/providers",
+        "dependencies": ["server"],
+        "build_phase": "Third - Extensions"
+      },
+      {
+        "id": "extension-no-op-protocol-mapper",
+        "artifactId": "extension-no-op-protocol-mapper",
+        "packaging": "jar",
+        "path": "extensions/extension-no-op-protocol-mapper",
+        "parent": "extensions",
+        "purpose": "Sample no-operation protocol mapper extension",
+        "provides": [
+          "NoOperationProtocolMapper - Token mapping customization"
+        ],
+        "java_packages": [
+          "com.inventage.keycloak.noopformauthenticator.infrastructure.protocolmapper"
+        ],
+        "deployment_target": "../server/target/keycloak/providers",
+        "dependencies": ["server"],
+        "build_phase": "Third - Extensions"
+      },
+      {
+        "id": "themes",
+        "artifactId": "themes",
+        "packaging": "jar",
+        "path": "themes",
+        "purpose": "Custom UI themes for Keycloak",
+        "provides": [
+          "inventage theme - Login & Common",
+          "inventage.v2 theme - Account management"
+        ],
+        "theme_types": {
+          "inventage": {
+            "login": [
+              "SMS configuration forms",
+              "Number authentication pages",
+              "Custom login templates",
+              "i18n messages (DE/EN)",
+              "Custom CSS styling"
+            ],
+            "common": [
+              "Common CSS",
+              "Sanitize CSS"
+            ]
+          },
+          "inventage.v2": {
+            "account": [
+              "Account management styling",
+              "i18n messages (DE/EN)"
+            ]
+          }
+        },
+        "deployment_target": "../server/target/keycloak/themes",
+        "dependencies": ["server"],
+        "build_phase": "Fourth - Themes"
+      },
+      {
+        "id": "container",
+        "artifactId": "container",
+        "packaging": "pom",
+        "path": "container",
+        "purpose": "Docker container image builder",
+        "provides": [
+          "Custom Keycloak Docker image",
+          "Multi-architecture support (arm64/amd64)",
+          "Integrated extensions and themes",
+          "Custom entrypoint script"
+        ],
+        "base_image": "quay.io/keycloak/keycloak:26.4.6",
+        "additional_base": "registry.access.redhat.com/ubi9 (for jq and tzdata)",
+        "docker_features": [
+          "Timezone configuration (Europe/Zurich)",
+          "jq utility for JSON processing",
+          "Custom entrypoint: /opt/keycloak/bin/kc-with-setup.sh",
+          "Optimized build with kc.sh build"
+        ],
+        "registry": "ghcr.io/inventage/keycloak-custom/",
+        "image_name": "com.inventage.keycloak.custom.container",
+        "tags": ["latest", "${project.version}"],
+        "dependencies": ["server", "config", "extensions", "themes"],
+        "build_phase": "Fifth - Container"
+      },
+      {
+        "id": "docker-compose",
+        "artifactId": "docker-compose",
+        "packaging": "pom",
+        "path": "docker-compose",
+        "purpose": "Local development orchestration with Docker Compose",
+        "provides": [
+          "Main Keycloak service configuration",
+          "PostgreSQL database service",
+          "Mailpit email testing service"
+        ],
+        "services": {
+          "keycloak": {
+            "file": "src/main/resources/docker-compose.yml",
+            "image": "${docker.registry}${project.groupId}.container:${project.version}",
+            "ports": ["8080:8080", "8443:8443"],
+            "env_files": [
+              "keycloak.common.env",
+              "keycloak.specific.env",
+              "secrets.env"
+            ],
+            "networks": ["keycloak"]
+          },
+          "postgres": {
+            "file": "postgres/docker-compose.yml",
+            "purpose": "Database backend for Keycloak"
+          },
+          "mailpit": {
+            "file": "mailpit/docker-compose.yml",
+            "purpose": "Email testing and debugging"
+          }
+        },
+        "dependencies": ["container"],
+        "build_phase": "Sixth - Local Testing"
+      },
+      {
+        "id": "helm",
+        "artifactId": "helm",
+        "packaging": "helm",
+        "path": "helm",
+        "purpose": "Kubernetes deployment via Helm chart",
+        "provides": [
+          "Keycloak Helm chart",
+          "OCI registry publishing",
+          "Codecentric chart integration"
+        ],
+        "chart_name": "keycloak-custom-chart",
+        "chart_directory": "src/generated/keycloak-custom-chart",
+        "source_directory": "src/main/resources",
+        "files": [
+          "Chart.yaml - Chart metadata",
+          "values.yaml - Default configuration values"
+        ],
+        "helm_version": "3.19.2",
+        "registry": "ghcr.io/inventage/keycloak-custom",
+        "dependencies": [
+          {
+            "repository": "https://codecentric.github.io/helm-charts",
+            "name": "Codecentric Helm Charts"
+          }
+        ],
+        "build_goals": [
+          "init",
+          "lint",
+          "package",
+          "registry-login",
+          "push"
+        ],
+        "dependencies_maven": ["container"],
+        "build_phase": "Seventh - Kubernetes Deployment"
+      }
+    ]
+  },
+
+  "extension_modules": {
+    "total_count": 2,
+    "extensions": [
+      {
+        "name": "extension-no-op-authenticator",
+        "type": "Authenticator SPI + Theme Provider",
+        "spi_implementations": [
+          {
+            "interface": "Authenticator",
+            "implementations": [
+              "NoOperationFormAuthenticator",
+              "NoOperationAuthenticator"
+            ]
+          },
+          {
+            "interface": "AuthenticatorFactory",
+            "implementations": [
+              "NoOperationFormAuthenticatorFactory",
+              "NoOperationAuthenticatorFactory"
+            ]
+          },
+          {
+            "interface": "ThemeProviderFactory",
+            "implementations": [
+              "InvitationClasspathThemeProviderFactory"
+            ]
+          }
+        ],
+        "features": [
+          "Form-based authentication flow",
+          "Simple authentication flow",
+          "Theme integration for custom forms",
+          "Auto-service registration via annotations"
+        ]
+      },
+      {
+        "name": "extension-no-op-protocol-mapper",
+        "type": "Protocol Mapper SPI",
+        "spi_implementations": [
+          {
+            "interface": "ProtocolMapper",
+            "implementations": [
+              "NoOperationProtocolMapper"
+            ]
+          }
+        ],
+        "features": [
+          "Token claim mapping customization",
+          "OIDC/SAML protocol support",
+          "Auto-service registration via annotations"
+        ]
+      }
+    ]
+  },
+
+  "theme_modules": {
+    "total_count": 2,
+    "themes": [
+      {
+        "name": "inventage",
+        "types": ["login", "common"],
+        "features": [
+          "SMS configuration UI",
+          "Number-based authentication",
+          "Custom login flows",
+          "Localization (German/English)",
+          "Custom CSS styling"
+        ],
+        "file_count": 10
+      },
+      {
+        "name": "inventage.v2",
+        "types": ["account"],
+        "features": [
+          "Account management UI",
+          "Localization (German/English)",
+          "Custom CSS styling"
+        ],
+        "file_count": 4
+      }
+    ]
+  }
+}

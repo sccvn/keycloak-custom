@@ -1,0 +1,323 @@
+{
+  "dependency_graph": {
+    "build_order": [
+      "server",
+      "config",
+      "extensions (extension-no-op-authenticator, extension-no-op-protocol-mapper)",
+      "themes",
+      "container",
+      "docker-compose",
+      "helm"
+    ],
+
+    "module_dependencies": {
+      "server": {
+        "depends_on": [],
+        "required_by": [
+          "config",
+          "extensions",
+          "themes",
+          "container"
+        ],
+        "purpose": "Foundation module - provides base Keycloak distribution"
+      },
+
+      "config": {
+        "depends_on": ["server"],
+        "required_by": ["container"],
+        "purpose": "Provides configuration files and setup scripts to container",
+        "artifacts_copied_to": [
+          {
+            "target": "../server/target/keycloak/conf",
+            "files": ["keycloak.conf"]
+          },
+          {
+            "target": "../server/target/keycloak/setup",
+            "files": ["realm-*.json", "setup scripts"]
+          },
+          {
+            "target": "../server/target/keycloak/bin",
+            "files": ["kc-with-setup.sh", "client scripts"]
+          }
+        ]
+      },
+
+      "extensions": {
+        "depends_on": ["server"],
+        "required_by": ["container"],
+        "purpose": "Aggregator module for all extension sub-modules",
+        "sub_modules": [
+          "extension-no-op-authenticator",
+          "extension-no-op-protocol-mapper"
+        ]
+      },
+
+      "extension-no-op-authenticator": {
+        "depends_on": ["server"],
+        "required_by": ["container"],
+        "purpose": "Provides custom authenticator JAR to Keycloak providers",
+        "artifacts_copied_to": [
+          {
+            "target": "../../server/target/keycloak/providers",
+            "files": ["extension-no-op-authenticator.jar"]
+          }
+        ],
+        "keycloak_dependencies": [
+          "org.keycloak:keycloak-core",
+          "org.keycloak:keycloak-server-spi",
+          "org.keycloak:keycloak-server-spi-private",
+          "org.keycloak:keycloak-services"
+        ]
+      },
+
+      "extension-no-op-protocol-mapper": {
+        "depends_on": ["server"],
+        "required_by": ["container"],
+        "purpose": "Provides custom protocol mapper JAR to Keycloak providers",
+        "artifacts_copied_to": [
+          {
+            "target": "../../server/target/keycloak/providers",
+            "files": ["extension-no-op-protocol-mapper.jar"]
+          }
+        ],
+        "keycloak_dependencies": [
+          "org.keycloak:keycloak-core",
+          "org.keycloak:keycloak-server-spi",
+          "org.keycloak:keycloak-services"
+        ]
+      },
+
+      "themes": {
+        "depends_on": ["server"],
+        "required_by": ["container"],
+        "purpose": "Provides custom theme files to Keycloak themes directory",
+        "artifacts_copied_to": [
+          {
+            "target": "../server/target/keycloak/themes",
+            "files": [
+              "inventage/*",
+              "inventage.v2/*"
+            ]
+          }
+        ]
+      },
+
+      "container": {
+        "depends_on": [
+          "server",
+          "config",
+          "extensions",
+          "themes"
+        ],
+        "required_by": [
+          "docker-compose",
+          "helm"
+        ],
+        "purpose": "Packages all components into Docker image",
+        "copies_from": [
+          {
+            "source": "../config/target/classes/keycloak",
+            "target": "/opt/keycloak",
+            "contents": ["bin/", "conf/", "setup/"]
+          },
+          {
+            "source": "../extensions/*/target/*.jar",
+            "target": "/opt/keycloak/providers",
+            "contents": ["extension JARs"]
+          },
+          {
+            "source": "../themes/target/classes/theme",
+            "target": "/opt/keycloak/themes",
+            "contents": ["inventage/", "inventage.v2/"]
+          }
+        ],
+        "docker_image_output": "ghcr.io/inventage/keycloak-custom/com.inventage.keycloak.custom.container"
+      },
+
+      "docker-compose": {
+        "depends_on": ["container"],
+        "required_by": [],
+        "purpose": "Uses container image for local development",
+        "image_reference": "${docker.registry}${project.groupId}.container:${project.version}",
+        "runtime_dependencies": [
+          {
+            "service": "postgres",
+            "purpose": "Database backend"
+          },
+          {
+            "service": "mailpit",
+            "purpose": "Email testing"
+          }
+        ]
+      },
+
+      "helm": {
+        "depends_on": ["container"],
+        "required_by": [],
+        "purpose": "Deploys container image to Kubernetes",
+        "image_reference": "ghcr.io/inventage/keycloak-custom/com.inventage.keycloak.custom.container",
+        "chart_dependencies": [
+          {
+            "repository": "https://codecentric.github.io/helm-charts",
+            "chart": "keycloakx",
+            "purpose": "Base Keycloak Helm chart"
+          }
+        ]
+      }
+    }
+  },
+
+  "external_dependencies": {
+    "keycloak_core": {
+      "group": "org.keycloak",
+      "version": "26.4.6",
+      "artifacts": [
+        "keycloak-quarkus-dist",
+        "keycloak-parent",
+        "keycloak-core",
+        "keycloak-server-spi",
+        "keycloak-server-spi-private",
+        "keycloak-services"
+      ],
+      "used_by": [
+        "server",
+        "extensions"
+      ]
+    },
+
+    "quarkus": {
+      "group": "io.quarkus",
+      "version": "3.25.2",
+      "artifacts": [
+        "quarkus-bootstrap-runner"
+      ],
+      "used_by": ["extensions"]
+    },
+
+    "testing": {
+      "testcontainers-keycloak": {
+        "version": "3.7.0",
+        "scope": "test",
+        "used_by": ["extensions"]
+      },
+      "testcontainers-postgresql": {
+        "version": "1.21.1",
+        "scope": "test",
+        "used_by": ["extensions"]
+      },
+      "junit-jupiter": {
+        "version": "5.12.1",
+        "scope": "test",
+        "used_by": ["all modules"]
+      }
+    },
+
+    "build_tools": {
+      "auto-service": {
+        "version": "1.0.1",
+        "purpose": "Annotation processing for SPI registration",
+        "used_by": ["extensions"]
+      }
+    },
+
+    "configuration_tools": {
+      "keycloak-config-cli": {
+        "version": "26.1.0_v6.4.0",
+        "purpose": "Declarative realm configuration",
+        "used_by": ["config", "container"]
+      }
+    }
+  },
+
+  "runtime_dependencies": {
+    "base_images": [
+      {
+        "image": "quay.io/keycloak/keycloak:26.4.6",
+        "purpose": "Base Keycloak server"
+      },
+      {
+        "image": "registry.access.redhat.com/ubi9",
+        "purpose": "Utilities (jq, tzdata)"
+      }
+    ],
+
+    "services": [
+      {
+        "name": "PostgreSQL",
+        "purpose": "Database backend for Keycloak",
+        "environment": "docker-compose"
+      },
+      {
+        "name": "Mailpit",
+        "purpose": "Email testing during development",
+        "environment": "docker-compose"
+      }
+    ]
+  },
+
+  "inter_module_data_flow": {
+    "build_artifacts": [
+      {
+        "flow": "server -> config",
+        "artifact": "Keycloak base distribution",
+        "destination": "target/keycloak"
+      },
+      {
+        "flow": "config -> container",
+        "artifact": "Configuration files (conf/, setup/, bin/)",
+        "destination": "Docker image /opt/keycloak"
+      },
+      {
+        "flow": "extensions -> container",
+        "artifact": "Extension JAR files",
+        "destination": "Docker image /opt/keycloak/providers"
+      },
+      {
+        "flow": "themes -> container",
+        "artifact": "Theme directories",
+        "destination": "Docker image /opt/keycloak/themes"
+      },
+      {
+        "flow": "container -> docker-compose",
+        "artifact": "Docker image",
+        "destination": "Docker Compose services"
+      },
+      {
+        "flow": "container -> helm",
+        "artifact": "Docker image",
+        "destination": "Kubernetes pods"
+      }
+    ],
+
+    "configuration_flow": [
+      {
+        "source": "config/src/main/resources/keycloak/conf/keycloak.conf",
+        "destination": "container:/opt/keycloak/conf/keycloak.conf",
+        "purpose": "Build-time Keycloak configuration"
+      },
+      {
+        "source": "config/src/main/resources/keycloak/setup/realm-*.json",
+        "destination": "container:/opt/keycloak/setup/",
+        "purpose": "Runtime realm configuration via keycloak-config-cli"
+      },
+      {
+        "source": "docker-compose/src/main/resources/*.env",
+        "destination": "runtime environment variables",
+        "purpose": "Environment-specific configuration"
+      },
+      {
+        "source": "helm/src/main/resources/values.yaml",
+        "destination": "Kubernetes ConfigMap/Secrets",
+        "purpose": "Kubernetes-specific configuration"
+      }
+    ]
+  },
+
+  "dependency_constraints": {
+    "maven_version": "3.6.0+",
+    "java_version": "21",
+    "docker_version": "Any with buildx support for multi-arch",
+    "helm_version": "3.19.2",
+    "kubernetes_version": "Compatible with Codecentric chart"
+  }
+}
