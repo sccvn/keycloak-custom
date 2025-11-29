@@ -1,0 +1,630 @@
+@startuml WebAuthn_Registration_Challenge_Flow
+title WebAuthn Registration - Challenge Generation Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Registration\nService" as RegService
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Challenge\nCache" as Cache
+
+Client -> API: POST /register/challenge\n{username, displayName, credentialName}
+activate API
+
+API -> RegService: generateChallenge(userId, credentialName)
+activate RegService
+
+RegService -> UserDB: getUserById(userId)
+activate UserDB
+UserDB --> RegService: UserModel
+deactivate UserDB
+
+RegService -> RegService: generateRandomChallenge(32 bytes)
+note right: Random, non-predictable challenge
+
+RegService -> RegService: encodeBase64Url(challenge)
+
+RegService -> Cache: storeChallenge(userId, challenge, \n"registration", TTL=300s)
+activate Cache
+Cache --> RegService: sessionId
+deactivate Cache
+
+RegService -> RegService: buildPublicKeyCreationOptions(user)
+note right: Include:\n- challenge\n- user info\n- rp info\n- pubKeyCredParams\n- authenticatorSelection\n- attestation
+
+RegService -> RegService: buildChallengeResponse()
+RegService --> API: RegistrationChallengeResponse
+
+deactivate RegService
+
+API --> Client: 200 OK\n{\n  sessionId,\n  challenge,\n  publicKeyCreationOptions\n}
+
+deactivate API
+
+note over Client
+  Client now uses WebAuthn API:
+  navigator.credentials.create(publicKeyCreationOptions)
+end note
+
+@enduml
+
+@startuml WebAuthn_Registration_Verify_Flow
+title WebAuthn Registration - Verification & Storage with Type Classification
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Registration\nService" as RegService
+participant "WebAuthn4j\nLibrary" as WA4j
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Token\nService" as TokenSvc
+participant "Cache" as Cache
+
+Client -> API: POST /register/verify\n{sessionId, attestationResponse,\ncredentialName, type}
+activate API
+note right: type: "passwordless" (default)\nor "twofactor"
+
+API -> RegService: verifyAndStoreCredential(verifyRequest)
+activate RegService
+
+RegService -> Cache: getChallenge(sessionId)
+activate Cache
+Cache --> RegService: WebAuthnChallenge
+deactivate Cache
+
+RegService -> RegService: validateChallengeNotExpired()
+alt Challenge Expired
+    RegService --> API: 400 Bad Request\n{error: "Challenge expired"}
+end
+
+RegService -> RegService: parseClientDataJSON(attestationResponse)
+note right: Extract:\n- challenge\n- origin\n- type ("webauthn.create")
+
+RegService -> RegService: validateClientData(clientData, storedChallenge)
+note right: Verify:\n- Challenge matches\n- Origin is allowed\n- Type is correct
+
+alt Validation Failed
+    RegService --> API: 400 Bad Request\n{error: "Validation failed"}
+end
+
+RegService -> RegService: parseAttestationObject(attestationResponse)
+activate RegService
+RegService -> WA4j: decode(attestationObjectBytes)
+WA4j --> RegService: AttestationObject
+deactivate RegService
+
+RegService -> RegService: extractAuthenticatorData(attestationObject)
+note right: Get:\n- Credential ID\n- Credential Public Key\n- Attestation Data
+
+RegService -> RegService: validateAuthenticatorData(authData)
+note right: Verify:\n- Flags (user present, user verified)\n- Attestation format\n- Credential type
+
+alt Attestation Verification Enabled
+    RegService -> WA4j: verifyAttestation(attestationObject)
+    activate WA4j
+    WA4j --> RegService: AttestationVerificationResult
+    deactivate WA4j
+
+    alt Attestation Invalid
+        RegService --> API: 400 Bad Request\n{error: "Attestation failed"}
+    end
+end
+
+RegService -> RegService: classifyCredentialType(requestType)
+activate RegService
+note right: Determine credential type:\n- Parse type from request\n- Default to PASSWORDLESS\n- Validate type value\n- Set on credential object
+deactivate RegService
+
+RegService -> CredMgr: storeCredential(userId, credential)
+activate CredMgr
+note right: credential includes:\n- credentialId\n- publicKey\n- attestationObject\n- signCount: 0\n- type: "passwordless"|"twofactor"\n- metadata
+
+CredMgr -> UserDB: getUserById(userId)
+activate UserDB
+UserDB --> CredMgr: UserModel
+deactivate UserDB
+
+CredMgr -> CredMgr: serializeCredentialToJSON(credential)
+note right: JSON includes type field:\n{\n  "credentialId": "...",\n  "type": "passwordless",\n  "metadata": {...}\n}
+
+CredMgr -> UserDB: setSingleAttribute("webauthn.credentials", json)
+activate UserDB
+UserDB --> CredMgr: void
+note right: Persists credential with\ntype to Keycloak user attributes
+deactivate UserDB
+
+CredMgr --> RegService: void
+deactivate CredMgr
+
+RegService -> Cache: deleteChallenge(sessionId)
+activate Cache
+Cache --> RegService: void
+deactivate Cache
+
+RegService -> TokenSvc: generateTokens(user, client, scope)
+activate TokenSvc
+
+TokenSvc -> UserDB: createUserSession(user)
+activate UserDB
+UserDB --> TokenSvc: UserSessionModel
+deactivate UserDB
+
+TokenSvc -> TokenSvc: createAccessToken()
+note right: Using Keycloak TokenManager\n- Include user roles\n- Include credentialType claim\n- Apply protocol mappers\n- Sign with realm key
+
+TokenSvc -> TokenSvc: createRefreshToken()
+TokenSvc -> TokenSvc: createIDToken()
+
+TokenSvc --> RegService: TokenResponse\n{accessToken, refreshToken, idToken, expiresIn}
+
+deactivate TokenSvc
+
+RegService --> API: RegistrationVerifyResponse\n{success, credentialId,\ncredentialType, tokens}
+
+deactivate RegService
+
+API --> Client: 200 OK\n{\n  success: true,\n  credentialId: "...",\n  credentialType: "passwordless",\n  accessToken,\n  refreshToken,\n  idToken,\n  expiresIn: 300\n}
+
+deactivate API
+
+note over Client
+  Client stores tokens and credential type\n  Can now use /auth/verify endpoint\n  Authentication flow determined by stored type
+end note
+
+@enduml
+
+@startuml WebAuthn_Authentication_Challenge_Flow
+title WebAuthn Authentication - Challenge Generation Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Auth\nService" as AuthService
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Challenge\nCache" as Cache
+
+Client -> API: POST /auth/challenge\n{username}
+activate API
+
+API -> AuthService: generateChallenge(username)
+activate AuthService
+
+AuthService -> UserDB: findUserByUsername(username)
+activate UserDB
+UserDB --> AuthService: UserModel or null
+deactivate UserDB
+
+alt User Not Found
+    note right: Return empty allowCredentials\nto prevent user enumeration
+    AuthService -> AuthService: generateRandomChallenge()
+    AuthService -> AuthService: buildEmptyAllowCredentialsList()
+else User Found
+    AuthService -> CredMgr: getCredentials(userId)
+    activate CredMgr
+
+    CredMgr -> UserDB: getUserById(userId)
+    activate UserDB
+    UserDB --> CredMgr: UserModel
+    deactivate UserDB
+
+    CredMgr -> CredMgr: getFirstAttribute("webauthn.credentials")
+    CredMgr -> CredMgr: deserializeCredentialsFromJSON()
+
+    CredMgr --> AuthService: List<WebAuthnCredential>
+    deactivate CredMgr
+
+    AuthService -> AuthService: generateRandomChallenge(32 bytes)
+    AuthService -> AuthService: buildAllowCredentialsList(credentials)
+    note right: Include:\n- Credential IDs\n- Transports (usb, ble, nfc, internal)\n- Type ("public-key")
+end
+
+AuthService -> Cache: storeChallenge(userId, challenge,\n"authentication", TTL=300s)
+activate Cache
+Cache --> AuthService: sessionId
+deactivate Cache
+
+AuthService -> AuthService: buildChallengeResponse(challenge, credentials)
+AuthService --> API: AuthenticationChallengeResponse
+
+deactivate AuthService
+
+API --> Client: 200 OK\n{\n  sessionId,\n  challenge,\n  allowCredentials,\n  timeout: 60000,\n  userVerification: "preferred"\n}
+
+deactivate API
+
+note over Client
+  Client now uses WebAuthn API:
+  navigator.credentials.get({
+    publicKey: publicKeyRequestOptions
+  })
+end note
+
+@enduml
+
+@startuml WebAuthn_Authentication_Verify_Flow
+title WebAuthn Authentication - Assertion Verification Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Auth\nService" as AuthService
+participant "WebAuthn4j\nLibrary" as WA4j
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Token\nService" as TokenSvc
+participant "Cache" as Cache
+
+Client -> API: POST /auth/verify\n{sessionId, assertionResponse}
+activate API
+
+API -> AuthService: verifyAssertion(verifyRequest)
+activate AuthService
+
+AuthService -> Cache: getChallenge(sessionId)
+activate Cache
+Cache --> AuthService: WebAuthnChallenge
+deactivate Cache
+
+AuthService -> AuthService: validateChallengeNotExpired()
+alt Challenge Expired
+    AuthService --> API: 400 Bad Request\n{error: "Challenge expired"}
+end
+
+AuthService -> AuthService: parseClientDataJSON(assertionResponse)
+note right: Extract:\n- challenge\n- origin\n- type ("webauthn.get")
+
+AuthService -> AuthService: validateAuthClientData(clientData, challenge)
+note right: Verify:\n- Challenge matches\n- Origin is allowed\n- Type is correct
+
+alt Validation Failed
+    AuthService --> API: 400 Bad Request\n{error: "Validation failed"}
+end
+
+AuthService -> AuthService: parseAuthenticatorData(assertionResponse)
+activate AuthService
+AuthService -> WA4j: decode(authenticatorDataBytes)
+WA4j --> AuthService: AuthenticatorData
+deactivate AuthService
+
+note right: Extract:\n- UP flag (user present)\n- UV flag (user verified)\n- Sign count
+
+AuthService -> AuthService: decodeSignature(assertionResponse)
+
+AuthService -> CredMgr: findCredentialById(credentialId)
+activate CredMgr
+
+CredMgr -> UserDB: getAllUsers()
+note right: Search across users\nfor credential ID
+
+CredMgr --> AuthService: WebAuthnCredential
+deactivate CredMgr
+
+alt Credential Not Found
+    AuthService --> API: 401 Unauthorized\n{error: "Invalid credential"}
+end
+
+AuthService -> AuthService: hashSHA256(clientDataJSON)
+AuthService -> AuthService: concatenate(authenticatorData, hash)
+
+AuthService -> WA4j: verifySignature(signedData, signature,\npublicKey)
+activate WA4j
+WA4j --> AuthService: boolean isValid
+deactivate WA4j
+
+alt Signature Invalid
+    AuthService --> API: 401 Unauthorized\n{error: "Signature verification failed"}
+end
+
+AuthService -> AuthService: validateSignCount(newSignCount, credential)
+note right: Ensure sign count increased\nto detect cloned authenticator
+
+alt Sign Count Invalid
+    AuthService --> API: 401 Unauthorized\n{error: "Sign count validation failed"}
+end
+
+AuthService -> CredMgr: updateCredential(credential)
+activate CredMgr
+CredMgr -> CredMgr: updateSignCount(newSignCount)
+CredMgr -> CredMgr: updateLastUsedTimestamp()
+CredMgr -> UserDB: setAttribute("webauthn.credentials", json)
+activate UserDB
+UserDB --> CredMgr: void
+deactivate UserDB
+CredMgr --> AuthService: void
+deactivate CredMgr
+
+AuthService -> Cache: deleteChallenge(sessionId)
+activate Cache
+Cache --> AuthService: void
+deactivate Cache
+
+AuthService -> UserDB: getUserById(userId)
+activate UserDB
+UserDB --> AuthService: UserModel
+deactivate UserDB
+
+AuthService -> TokenSvc: generateTokens(user, client, scope)
+activate TokenSvc
+
+TokenSvc -> TokenSvc: createUserSession(user)
+TokenSvc -> TokenSvc: createAccessToken()
+TokenSvc -> TokenSvc: createRefreshToken()
+TokenSvc -> TokenSvc: createIDToken()
+
+TokenSvc --> AuthService: TokenResponse
+
+deactivate TokenSvc
+
+AuthService --> API: AuthenticationVerifyResponse\n{success, tokens}
+
+deactivate AuthService
+
+API --> Client: 200 OK\n{\n  success: true,\n  accessToken,\n  refreshToken,\n  idToken,\n  expiresIn: 300\n}
+
+deactivate API
+
+note over Client
+  Client stores tokens and uses accessToken
+  for subsequent API requests
+end note
+
+@enduml
+
+@startuml WebAuthn_List_Credentials_Flow
+title WebAuthn - List User Credentials Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Auth\nFilter" as AuthFilter
+
+Client -> API: GET /credentials\nAuthorization: Bearer {accessToken}
+activate API
+
+API -> AuthFilter: validateAccessToken(accessToken)
+activate AuthFilter
+
+AuthFilter -> AuthFilter: verifySignature(accessToken)
+AuthFilter -> AuthFilter: checkTokenExpiration()
+AuthFilter -> AuthFilter: extractUserId(accessToken)
+
+alt Token Invalid or Expired
+    AuthFilter --> API: 401 Unauthorized
+    API --> Client: 401 Unauthorized
+    deactivate AuthFilter
+    deactivate API
+end
+
+AuthFilter --> API: userId
+deactivate AuthFilter
+
+API -> CredMgr: getCredentials(userId)
+activate CredMgr
+
+CredMgr -> UserDB: getUserById(userId)
+activate UserDB
+UserDB --> CredMgr: UserModel
+deactivate UserDB
+
+CredMgr -> CredMgr: getFirstAttribute("webauthn.credentials")
+CredMgr -> CredMgr: deserializeCredentialsFromJSON()
+note right: Return:\n- credentialId\n- credentialName\n- createdAt\n- lastUsedAt\n- aaguid
+
+CredMgr --> API: List<WebAuthnCredential>
+deactivate CredMgr
+
+API -> API: buildCredentialListResponse(credentials)
+
+API --> Client: 200 OK\n{\n  credentials: [\n    {\n      credentialId,\n      credentialName,\n      createdAt,\n      lastUsedAt,\n      aaguid\n    }\n  ],\n  total: 1\n}
+
+deactivate API
+
+@enduml
+
+@startuml WebAuthn_Delete_Credential_Flow
+title WebAuthn - Delete Credential Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Credential\nManager" as CredMgr
+participant "Keycloak\nUserModel" as UserDB
+participant "Auth\nFilter" as AuthFilter
+
+Client -> API: DELETE /credentials/{credentialId}\nAuthorization: Bearer {accessToken}
+activate API
+
+API -> AuthFilter: validateAccessToken(accessToken)
+activate AuthFilter
+
+AuthFilter -> AuthFilter: verifySignature(accessToken)
+AuthFilter -> AuthFilter: checkTokenExpiration()
+AuthFilter -> AuthFilter: extractUserId(accessToken)
+
+alt Token Invalid or Expired
+    AuthFilter --> API: 401 Unauthorized
+    API --> Client: 401 Unauthorized
+    deactivate AuthFilter
+    deactivate API
+end
+
+AuthFilter --> API: userId
+deactivate AuthFilter
+
+API -> CredMgr: deleteCredential(userId, credentialId)
+activate CredMgr
+
+CredMgr -> UserDB: getUserById(userId)
+activate UserDB
+UserDB --> CredMgr: UserModel
+deactivate UserDB
+
+CredMgr -> CredMgr: getFirstAttribute("webauthn.credentials")
+CredMgr -> CredMgr: deserializeCredentialsFromJSON()
+
+CredMgr -> CredMgr: removeCredentialById(credentialId)
+note right: Remove credential\nfrom list
+
+alt Credential Not Found
+    CredMgr --> API: 404 Not Found
+    API --> Client: 404 Not Found
+    deactivate CredMgr
+    deactivate API
+end
+
+CredMgr -> CredMgr: serializeCredentialsToJSON()
+
+CredMgr -> UserDB: setAttribute("webauthn.credentials", json)
+activate UserDB
+UserDB --> CredMgr: void
+deactivate UserDB
+
+CredMgr --> API: void
+deactivate CredMgr
+
+API --> Client: 204 No Content
+
+deactivate API
+
+@enduml
+
+@startuml WebAuthn_Error_Handling_Flow
+title WebAuthn - Error Handling & Validation Sequence
+
+participant "Mobile/Web\nClient" as Client
+participant "WebAuthn\nRealm API" as API
+participant "Validation\nLayer" as Validation
+participant "Service\nLayer" as Service
+participant "Exception\nHandler" as ExHandler
+
+Client -> API: POST /register/verify\n{invalid data}
+activate API
+
+API -> Validation: validateRequest(request)
+activate Validation
+
+alt Request Validation Fails
+    Validation --> API: ValidationException\n(malformed JSON, missing fields)
+    API -> ExHandler: handleException(ValidationException)
+    activate ExHandler
+    ExHandler --> API: 400 Bad Request\n{error: "Invalid request"}
+    deactivate ExHandler
+    API --> Client: 400 Bad Request
+    deactivate Validation
+    deactivate API
+end
+
+Validation --> API: RequestValid
+deactivate Validation
+
+API -> Service: verifyAndStoreCredential(request)
+activate Service
+
+alt Challenge Expired
+    Service --> API: ChallengeExpiredException
+    API -> ExHandler: handleException(ChallengeExpiredException)
+    activate ExHandler
+    ExHandler --> API: 400 Bad Request\n{error: "Challenge expired"}
+    deactivate ExHandler
+    API --> Client: 400 Bad Request\n{error: "Challenge expired"}
+    deactivate Service
+    deactivate API
+end
+
+alt Invalid Signature
+    Service --> API: InvalidCredentialException
+    API -> ExHandler: handleException(InvalidCredentialException)
+    activate ExHandler
+    ExHandler --> API: 401 Unauthorized\n{error: "Signature verification failed"}
+    deactivate ExHandler
+    API --> Client: 401 Unauthorized
+    deactivate Service
+    deactivate API
+end
+
+alt System Error
+    Service --> API: Exception
+    API -> ExHandler: handleException(Exception)
+    activate ExHandler
+    ExHandler -> ExHandler: logError(exception)
+    ExHandler --> API: 500 Internal Server Error\n{error: "An error occurred"}
+    deactivate ExHandler
+    API --> Client: 500 Internal Server Error
+    deactivate Service
+    deactivate API
+end
+
+Service --> API: Success
+deactivate Service
+
+API --> Client: 200 OK
+deactivate API
+
+@enduml
+
+@startuml WebAuthn_Security_Validation_Flow
+title WebAuthn - Security Validation & Replay Prevention Sequence
+
+participant "Authenticator\nDevice" as Device
+participant "WebAuthn\nRealm API" as API
+participant "Auth\nService" as Service
+participant "Credential\nStore" as Store
+participant "Challenge\nCache" as Cache
+
+Device -> API: POST /auth/verify\n{credentialId, signCount: 5, signature}
+activate API
+
+API -> Service: verifyAssertion(request)
+activate Service
+
+Service -> Cache: validateChallenge(sessionId)
+note right: Ensure:\n1. Challenge exists\n2. Not expired\n3. Not reused
+
+alt Challenge Invalid/Expired
+    Service --> API: ChallengeExpiredException
+    API --> Device: 400 Bad Request
+    deactivate Service
+    deactivate API
+end
+
+Service -> Service: verifySignature(assertionData, pubKey)
+note right: Cryptographic\nverification
+
+alt Signature Invalid
+    Service --> API: InvalidCredentialException
+    API --> Device: 401 Unauthorized
+    deactivate Service
+    deactivate API
+end
+
+Service -> Store: getCredential(credentialId)
+activate Store
+Store --> Service: Credential{signCount: 4}
+deactivate Store
+
+Service -> Service: validateSignCount(newSignCount: 5, oldSignCount: 4)
+note right: Ensures:\n- Sign count increased\n- No cloned authenticator\n- No replay attack
+
+alt Sign Count Not Increased
+    Service --> API: InvalidCredentialException\n("Possible clone detected")
+    API --> Device: 401 Unauthorized
+    deactivate Service
+    deactivate API
+end
+
+Service -> Store: updateSignCount(credentialId, 5)
+activate Store
+Store --> Service: void
+deactivate Store
+
+Service -> Cache: deleteChallenge(sessionId)
+activate Cache
+Cache --> Service: void
+deactivate Cache
+
+Service --> API: Success
+deactivate Service
+
+API --> Device: 200 OK\n{accessToken, refreshToken}
+deactivate API
+
+@enduml
