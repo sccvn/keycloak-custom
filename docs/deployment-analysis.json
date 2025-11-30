@@ -1,0 +1,640 @@
+{
+  "deploymentAnalysis": {
+    "timestamp": "2025-11-30T08:30:00Z",
+    "project": "keycloak-custom",
+    "version": "1.0.0-SNAPSHOT",
+    "keycloakVersion": "26.4.6"
+  },
+  "dockerServices": {
+    "keycloak": {
+      "image": "ghcr.io/inventage/keycloak-custom/com.inventage.keycloak.custom.container:1.0.0-SNAPSHOT",
+      "baseImage": "quay.io/keycloak/keycloak:26.4.6",
+      "dockerfile": "/home/tuanna47/workspace/keycloak-custom/container/src/main/resources/Dockerfile",
+      "ports": {
+        "http": 8080,
+        "https": 8443
+      },
+      "envFiles": [
+        "keycloak.common.env",
+        "keycloak.specific.env",
+        "secrets.env"
+      ],
+      "entrypoint": "/opt/keycloak/bin/kc-with-setup.sh",
+      "workingDirectory": "/opt/keycloak",
+      "user": "1000",
+      "networks": ["keycloak"],
+      "labels": {
+        "org.labels-schema.group": "iam"
+      },
+      "volumes": {
+        "/opt/keycloak/conf/": "Configuration files (keycloak.conf, certificates)",
+        "/opt/keycloak/providers/": "Custom SPI providers (JAR files)",
+        "/opt/keycloak/themes/": "Custom themes",
+        "/opt/keycloak/setup/": "Realm configuration JSON files"
+      }
+    },
+    "postgres": {
+      "image": "postgres:16-alpine",
+      "version": "16",
+      "ports": {
+        "external": 15432,
+        "internal": 5432
+      },
+      "environment": {
+        "PGDATA": "/var/lib/postgresql/data/pgdata",
+        "POSTGRES_PASSWORD": "postgres"
+      },
+      "volumes": {
+        "./volume/16/pgdata/": "/var/lib/postgresql/data/pgdata"
+      },
+      "networks": ["postgres"],
+      "persistence": "Local volume mount"
+    },
+    "mailpit": {
+      "image": "axllent/mailpit:v1.18.6",
+      "purpose": "Email testing (development)",
+      "ports": {
+        "smtp": 1025,
+        "webui": 8025
+      },
+      "restart": "unless-stopped"
+    }
+  },
+  "kubernetesConfig": {
+    "helmChart": {
+      "name": "keycloak-custom-chart",
+      "version": "1.0.0-SNAPSHOT",
+      "apiVersion": "v2",
+      "chartLocation": "/home/tuanna47/workspace/keycloak-custom/helm/src/main/resources/",
+      "dependencies": [
+        {
+          "name": "keycloakx",
+          "version": "7.1.4",
+          "repository": "https://codecentric.github.io/helm-charts"
+        }
+      ]
+    },
+    "deployment": {
+      "command": [
+        "/opt/keycloak/bin/kc-with-setup.sh",
+        "--verbose",
+        "start",
+        "--http-enabled=true",
+        "--http-port=8080",
+        "--hostname-strict=false",
+        "--spi-events-listener-jboss-logging-success-level=info",
+        "--spi-events-listener-jboss-logging-error-level=warn"
+      ],
+      "image": {
+        "repository": "ghcr.io/inventage/keycloak-custom/com.inventage.keycloak.custom.container",
+        "tag": "1.0.0-SNAPSHOT"
+      },
+      "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "capabilities": {
+          "drop": ["ALL"]
+        }
+      }
+    },
+    "database": {
+      "vendor": "postgres",
+      "hostname": "postgresql",
+      "port": 5432,
+      "username": "keycloak",
+      "database": "keycloak",
+      "dbchecker": {
+        "enabled": true,
+        "purpose": "Ensures database readiness before Keycloak starts"
+      }
+    },
+    "configMap": {
+      "name": "keycloak-custom-config-vars",
+      "namespace": "default",
+      "example": {
+        "EXAMPLE1_DISPLAY_NAME": "Example One (minikube)"
+      }
+    },
+    "secret": {
+      "name": "keycloak-custom-secret-vars",
+      "namespace": "default",
+      "type": "Opaque",
+      "requiredKeys": [
+        "KC_BOOTSTRAP_ADMIN_PASSWORD",
+        "KC_BOOTSTRAP_ADMIN_CLIENT_SECRET"
+      ]
+    },
+    "resourceRequirements": {
+      "javaHeap": {
+        "maxRAMPercentage": "70",
+        "minRAMPercentage": "70",
+        "initialRAMPercentage": "50"
+      }
+    }
+  },
+  "environmentVariables": {
+    "bootstrap": {
+      "KC_BOOTSTRAP_ADMIN_USERNAME": {
+        "description": "Temporary admin username for first run",
+        "default": "temp-admin",
+        "required": "Yes (first run only)",
+        "security": "Should be deleted after permanent client creation"
+      },
+      "KC_BOOTSTRAP_ADMIN_PASSWORD": {
+        "description": "Temporary admin password",
+        "default": "admin",
+        "required": "Yes (first run only)",
+        "security": "MUST be changed in production"
+      },
+      "KC_BOOTSTRAP_ADMIN_CLIENT_ID": {
+        "description": "Temporary admin client ID",
+        "default": "temp-client-admin",
+        "required": "Yes (first run only)"
+      },
+      "KC_BOOTSTRAP_ADMIN_CLIENT_SECRET": {
+        "description": "Temporary admin client secret",
+        "default": "admin",
+        "required": "Yes (first run only)",
+        "security": "MUST be changed in production"
+      }
+    },
+    "permanentConfig": {
+      "KEYCLOAK_CONFIG_CLI_CLIENT_ID": {
+        "description": "Permanent configuration client ID",
+        "default": "keycloak-config-cli",
+        "purpose": "Used by keycloak-config-cli for ongoing configuration"
+      },
+      "KEYCLOAK_CONFIG_CLI_CLIENT_SECRET": {
+        "description": "Permanent configuration client secret",
+        "default": "keycloak-config-cli",
+        "security": "Should be stored in secrets management system"
+      }
+    },
+    "configCli": {
+      "KEYCLOAK_GRANTTYPE": {
+        "description": "OAuth grant type for config operations",
+        "default": "client_credentials",
+        "options": ["password", "client_credentials"]
+      },
+      "KEYCLOAK_CLIENTID": {
+        "description": "Client ID for config tool authentication",
+        "default": "${KC_BOOTSTRAP_ADMIN_CLIENT_ID}",
+        "note": "Switch to ${KEYCLOAK_CONFIG_CLI_CLIENT_ID} after first run"
+      },
+      "KEYCLOAK_CLIENTSECRET": {
+        "description": "Client secret for config tool authentication",
+        "default": "${KC_BOOTSTRAP_ADMIN_CLIENT_SECRET}",
+        "note": "Switch to ${KEYCLOAK_CONFIG_CLI_CLIENT_SECRET} after first run"
+      }
+    },
+    "database": {
+      "KC_DB_URL": {
+        "description": "JDBC connection URL",
+        "default": "jdbc:postgresql://localhost:15432/postgres",
+        "format": "jdbc:postgresql://<host>:<port>/<database>"
+      },
+      "KC_DB_USERNAME": {
+        "description": "Database username",
+        "default": "postgres"
+      },
+      "KC_DB_PASSWORD": {
+        "description": "Database password",
+        "default": "postgres",
+        "security": "MUST be changed in production"
+      }
+    },
+    "httpTls": {
+      "KC_HTTP_ENABLED": {
+        "description": "Enable HTTP endpoint",
+        "default": "true",
+        "production": "Should be false in production (HTTPS only)"
+      },
+      "KC_HTTP_PORT": {
+        "description": "HTTP port",
+        "default": "8080"
+      },
+      "KC_HTTPS_PORT": {
+        "description": "HTTPS port",
+        "default": "8443"
+      },
+      "KC_HTTPS_CERTIFICATE_FILE": {
+        "description": "TLS certificate path",
+        "default": "./conf/localhost.pem",
+        "production": "Use proper CA-signed certificate"
+      },
+      "KC_HTTPS_CERTIFICATE_KEY_FILE": {
+        "description": "TLS private key path",
+        "default": "./conf/localhost-key.pem"
+      },
+      "KC_HOSTNAME_STRICT": {
+        "description": "Strict hostname validation",
+        "default": "false",
+        "production": "Should be true in production"
+      }
+    },
+    "proxy": {
+      "KC_PROXY_HEADERS": {
+        "description": "Proxy mode for X-Forwarded-* headers",
+        "default": "xforwarded",
+        "options": ["edge", "reencrypt", "passthrough"]
+      }
+    },
+    "logging": {
+      "KC_LOG_LEVEL": {
+        "description": "Log level configuration",
+        "default": "info,org.hibernate.SQL:debug",
+        "format": "root_level,category1:level1,category2:level2"
+      }
+    },
+    "java": {
+      "JAVA_OPTS_APPEND": {
+        "description": "Additional JVM options",
+        "example": "-Djava.awt.headless=true -Djgroups.dns.query=..."
+      },
+      "JAVA_OPTS_KC_HEAP": {
+        "description": "JVM heap settings for containers",
+        "default": "-XX:MaxRAMPercentage=70 -XX:MinRAMPercentage=70 -XX:InitialRAMPercentage=50"
+      }
+    }
+  },
+  "buildConfiguration": {
+    "keycloakConf": {
+      "location": "/home/tuanna47/workspace/keycloak-custom/server/target/keycloak/conf/keycloak.conf",
+      "settings": {
+        "db": "postgres",
+        "features": "organization",
+        "metrics-enabled": true,
+        "health-enabled": true
+      }
+    },
+    "maven": {
+      "groupId": "com.inventage.keycloak.custom",
+      "artifactId": "parent",
+      "version": "1.0.0-SNAPSHOT",
+      "packaging": "pom",
+      "javaVersion": "17",
+      "modules": [
+        "server",
+        "config",
+        "extensions",
+        "themes",
+        "container",
+        "docker-compose",
+        "helm"
+      ]
+    }
+  },
+  "cicdPipeline": {
+    "platform": "GitHub Actions",
+    "workflowFile": "/home/tuanna47/workspace/keycloak-custom/.github/workflows/build-pipeline.yml",
+    "triggers": {
+      "push": ["main"],
+      "pullRequest": ["main"]
+    },
+    "jobs": {
+      "build": {
+        "runner": "ubuntu-latest",
+        "permissions": ["packages:write"],
+        "steps": [
+          {
+            "name": "Checkout",
+            "action": "actions/checkout@v3"
+          },
+          {
+            "name": "Setup JDK",
+            "action": "actions/setup-java@v3",
+            "javaVersion": "21",
+            "distribution": "temurin"
+          },
+          {
+            "name": "Version Replacement",
+            "description": "Replace SNAPSHOT with timestamped version",
+            "format": "{major}.{minor}.{patch}-{YYYYMMDDHHMM}-{BUILD_NUMBER}-{GIT_HASH}"
+          },
+          {
+            "name": "Maven Build",
+            "command": "./mvnw -B -DmultiArchBuild=true -DskipTests deploy",
+            "environment": {
+              "GITHUB_ACTOR": "${{ github.repository_owner }}",
+              "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"
+            }
+          },
+          {
+            "name": "Cleanup Old Images",
+            "action": "actions/delete-package-versions@v4",
+            "retention": {
+              "minVersions": 5,
+              "deleteOnlyPreRelease": true
+            },
+            "targets": [
+              "keycloak-custom/com.inventage.keycloak.custom.container",
+              "keycloak-custom/keycloak-custom-chart"
+            ]
+          }
+        ]
+      }
+    },
+    "artifacts": {
+      "dockerImage": {
+        "registry": "ghcr.io",
+        "repository": "inventage/keycloak-custom/com.inventage.keycloak.custom.container"
+      },
+      "helmChart": {
+        "registry": "ghcr.io",
+        "repository": "inventage/keycloak-custom/keycloak-custom-chart"
+      }
+    }
+  },
+  "deploymentProcedures": {
+    "localDevelopment": {
+      "prerequisites": [
+        "Docker 20.10+",
+        "Maven 3.6+",
+        "Java 17+"
+      ],
+      "steps": [
+        "Start PostgreSQL: cd docker-compose/postgres && docker-compose up -d",
+        "Optional: Start Mailpit for email testing",
+        "Build project: ./mvnw clean install",
+        "Start Keycloak: cd docker-compose/target/keycloak && docker-compose up",
+        "Access at http://localhost:8080 (admin: temp-admin/admin)"
+      ]
+    },
+    "kubernetes": {
+      "prerequisites": [
+        "Kubernetes 1.24+",
+        "Helm 3.x",
+        "kubectl configured"
+      ],
+      "steps": [
+        "Build and load image into cluster",
+        "Create ConfigMap: kubectl apply -f keycloak-custom-config-vars.yaml",
+        "Create Secret: kubectl apply -f keycloak-custom-secret-vars.yaml",
+        "Install PostgreSQL: helm install postgresql bitnami/postgresql",
+        "Install Keycloak: helm install keycloak-custom ./keycloak-custom-chart",
+        "Port forward: kubectl port-forward svc/keycloak-custom 8080:80"
+      ]
+    },
+    "production": {
+      "checklist": [
+        "Change all default passwords",
+        "Use external secrets management (Vault, AWS Secrets Manager)",
+        "Switch to permanent config client",
+        "Enable HTTPS only (KC_HTTP_ENABLED=false)",
+        "Configure valid TLS certificates",
+        "Set KC_HOSTNAME_STRICT=true",
+        "Use managed database service",
+        "Enable database SSL/TLS",
+        "Set resource limits and autoscaling",
+        "Configure monitoring and alerting",
+        "Deploy multiple replicas (min 3)",
+        "Enable cache clustering",
+        "Set up automated backups",
+        "Document disaster recovery procedures"
+      ]
+    }
+  },
+  "monitoringSetup": {
+    "healthChecks": {
+      "enabled": true,
+      "configuration": "health-enabled=true in keycloak.conf",
+      "endpoints": {
+        "health": "http://localhost:8080/health",
+        "ready": "http://localhost:8080/health/ready",
+        "live": "http://localhost:8080/health/live"
+      },
+      "checks": [
+        "Keycloak database connections health check"
+      ]
+    },
+    "metrics": {
+      "enabled": true,
+      "configuration": "metrics-enabled=true in keycloak.conf",
+      "endpoint": "http://localhost:8080/metrics",
+      "format": "Prometheus",
+      "keyMetrics": [
+        "JVM memory usage",
+        "Thread counts",
+        "HTTP request rates",
+        "Database connection pool stats",
+        "Authentication/authorization counts"
+      ]
+    },
+    "logging": {
+      "defaultLevel": "info",
+      "sqlLogging": "debug",
+      "eventLogging": {
+        "success": "info",
+        "error": "warn"
+      },
+      "output": "Container stdout/stderr",
+      "access": "docker logs / kubectl logs"
+    },
+    "recommendations": {
+      "monitoring": [
+        "Prometheus + Grafana for metrics visualization",
+        "Alert on high memory usage (>80%)",
+        "Alert on failed login spikes",
+        "Alert on database connection failures",
+        "Use Keycloak Grafana dashboards"
+      ],
+      "apm": [
+        "Elastic APM",
+        "Datadog",
+        "New Relic",
+        "Configure via JAVA_OPTS_APPEND"
+      ],
+      "logging": [
+        "ELK Stack (Elasticsearch, Logstash, Kibana)",
+        "Grafana Loki",
+        "AWS CloudWatch Logs",
+        "Azure Monitor Logs",
+        "Centralized log aggregation"
+      ]
+    }
+  },
+  "troubleshooting": {
+    "commonIssues": [
+      {
+        "issue": "Container fails to start",
+        "symptoms": "Container exits immediately",
+        "diagnostics": "docker logs / kubectl logs",
+        "causes": [
+          "Database not accessible",
+          "Missing environment variables",
+          "Invalid configuration"
+        ],
+        "solutions": [
+          "Verify database is running",
+          "Check database connectivity",
+          "Validate environment files",
+          "Check keycloak.conf syntax"
+        ]
+      },
+      {
+        "issue": "Database connection failed",
+        "symptoms": "Unable to connect to database",
+        "diagnostics": "Test database connection with psql",
+        "solutions": [
+          "Verify KC_DB_URL format",
+          "Check database credentials",
+          "Ensure network accessibility",
+          "Verify PostgreSQL listening on correct port"
+        ]
+      },
+      {
+        "issue": "Authentication failed during setup",
+        "symptoms": "keycloak-config-cli authentication errors",
+        "solutions": [
+          "Verify bootstrap credentials",
+          "Ensure bootstrap client has admin role",
+          "Check if temporary admin deleted (use permanent client)",
+          "Review /setup realm configurations"
+        ]
+      },
+      {
+        "issue": "Helm deployment fails",
+        "symptoms": "Pod in CrashLoopBackOff or ImagePullBackOff",
+        "solutions": [
+          "Check image name and registry credentials",
+          "Review pod logs for errors",
+          "Verify ConfigMap and Secret existence",
+          "Create docker-registry secret for GHCR"
+        ]
+      },
+      {
+        "issue": "HTTPS/TLS certificate issues",
+        "symptoms": "Certificate not found or SSL errors",
+        "solutions": [
+          "Verify certificate files exist",
+          "Check file permissions (readable by user 1000)",
+          "Generate self-signed certs for dev",
+          "Use Let's Encrypt or CA-signed certs for production"
+        ]
+      },
+      {
+        "issue": "High memory usage / OOM errors",
+        "symptoms": "Container killed due to out-of-memory",
+        "solutions": [
+          "Increase container memory limits",
+          "Tune JVM settings (Xms/Xmx)",
+          "Adjust heap percentage for Kubernetes",
+          "Review application memory usage patterns"
+        ]
+      },
+      {
+        "issue": "Custom providers not loading",
+        "symptoms": "SPI provider not registered",
+        "solutions": [
+          "Verify JAR files in /opt/keycloak/providers/",
+          "Ensure correct Keycloak version compatibility",
+          "Check META-INF/services registration",
+          "Rebuild image after adding providers"
+        ]
+      }
+    ],
+    "debugMode": {
+      "docker": {
+        "environment": [
+          "KC_LOG_LEVEL=debug",
+          "DEBUG=true",
+          "DEBUG_PORT=8787"
+        ]
+      },
+      "kubernetes": {
+        "extraEnv": "KC_LOG_LEVEL=debug"
+      },
+      "commandLine": "/opt/keycloak/bin/kc.sh start --debug 8787"
+    },
+    "usefulCommands": {
+      "showConfig": "docker exec <container> /opt/keycloak/bin/kc.sh show-config",
+      "exportRealm": "docker exec <container> /opt/keycloak/bin/kc.sh export --file /tmp/realm-export.json --realm master",
+      "testAuth": "docker exec <container> /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user temp-admin",
+      "testHealth": "curl -v http://localhost:8080/health",
+      "testMetrics": "curl http://localhost:8080/metrics"
+    }
+  },
+  "securityConsiderations": {
+    "production": [
+      "Change all default passwords immediately",
+      "Use external secrets management (Vault, AWS Secrets Manager, Azure Key Vault)",
+      "Enable HTTPS only, disable HTTP",
+      "Use valid CA-signed TLS certificates",
+      "Set KC_HOSTNAME_STRICT=true",
+      "Enable database SSL/TLS connections",
+      "Implement network policies and firewalls",
+      "Use least-privilege security contexts",
+      "Regular security updates and patching",
+      "Enable audit logging",
+      "Implement rate limiting and DDoS protection"
+    ],
+    "secrets": [
+      "Never commit secrets to version control",
+      "Use Kubernetes Secrets or external secret managers",
+      "Rotate secrets regularly",
+      "Use strong, randomly generated passwords",
+      "Limit secret access with RBAC"
+    ],
+    "network": [
+      "Use private networks for database connections",
+      "Implement ingress TLS termination",
+      "Configure reverse proxy headers correctly",
+      "Use network policies to restrict pod communication",
+      "Enable mTLS for service-to-service communication"
+    ]
+  },
+  "scalingRecommendations": {
+    "horizontal": {
+      "minReplicas": 3,
+      "targetCPU": "70%",
+      "targetMemory": "80%",
+      "cacheSync": "Enable Infinispan clustering with jgroups.dns.query"
+    },
+    "vertical": {
+      "cpu": {
+        "request": "500m",
+        "limit": "2000m"
+      },
+      "memory": {
+        "request": "1Gi",
+        "limit": "4Gi"
+      }
+    },
+    "database": {
+      "connectionPooling": "Configure datasource connection limits",
+      "readReplicas": "Use read replicas for reporting queries",
+      "connectionLimit": "Set appropriate max_connections"
+    }
+  },
+  "backupRecovery": {
+    "database": {
+      "automated": "Configure automated PostgreSQL backups",
+      "frequency": "Daily full backup + continuous WAL archiving",
+      "retention": "30 days minimum",
+      "testing": "Test restore procedures quarterly"
+    },
+    "configuration": {
+      "realmExport": "Regular export of realm configurations",
+      "versionControl": "Store realm JSON in git",
+      "automation": "Automate exports via keycloak-config-cli"
+    },
+    "disaster": {
+      "rto": "Define Recovery Time Objective",
+      "rpo": "Define Recovery Point Objective",
+      "procedures": "Document step-by-step recovery",
+      "drills": "Conduct disaster recovery drills"
+    }
+  },
+  "additionalResources": {
+    "documentation": [
+      "Keycloak Official Docs: https://www.keycloak.org/documentation",
+      "Codecentric Helm Chart: https://github.com/codecentric/helm-charts",
+      "Project README: /home/tuanna47/workspace/keycloak-custom/README.md",
+      "Custom Template Guide: https://keycloak.ch/keycloak-tutorials/tutorial-custom-keycloak/"
+    ],
+    "tools": [
+      "keycloak-config-cli: https://github.com/adorsys/keycloak-config-cli",
+      "kcadm.sh: Keycloak admin CLI",
+      "kcreg.sh: Keycloak client registration CLI"
+    ]
+  }
+}

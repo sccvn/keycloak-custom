@@ -1,0 +1,1008 @@
+openapi: 3.0.0
+info:
+  title: Keycloak WebAuthn API
+  version: 1.0.0
+  description: |
+    REST API for WebAuthn (FIDO2) credential registration and authentication in Keycloak.
+
+    This API enables passwordless authentication and two-factor authentication using
+    WebAuthn/FIDO2 security keys, platform authenticators, and biometrics.
+
+    ## Features
+    - Passwordless authentication (platform authenticators, security keys)
+    - Two-factor authentication (WebAuthn as 2FA)
+    - Credential management (list, delete)
+    - Challenge-based verification flow
+    - Token generation upon successful authentication
+
+    ## Authentication Flow
+    1. **Registration**: Generate challenge → Verify attestation → Store credential
+    2. **Authentication**: Generate challenge → Verify assertion → Issue tokens
+
+    ## Base URL
+    All endpoints are relative to: `/realms/{realm}/api/webauthn`
+
+  contact:
+    name: API Support
+    email: support@inventage.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://keycloak.example.com/realms/{realm}/api/webauthn
+    description: Production server
+    variables:
+      realm:
+        default: master
+        description: Keycloak realm name
+  - url: http://localhost:8080/realms/{realm}/api/webauthn
+    description: Local development server
+    variables:
+      realm:
+        default: master
+        description: Keycloak realm name
+
+tags:
+  - name: Registration
+    description: WebAuthn credential registration endpoints
+  - name: Authentication
+    description: WebAuthn authentication endpoints
+  - name: Credential Management
+    description: Credential management endpoints
+  - name: Health
+    description: Service health check
+
+paths:
+  /:
+    get:
+      summary: Health check
+      description: |
+        Simple health check endpoint to verify the WebAuthn service is operational.
+        Can be used for monitoring and load balancer health checks.
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: webauthn
+                  realm:
+                    type: string
+                    example: master
+              example:
+                status: ok
+                service: webauthn
+                realm: master
+
+  /register/challenge:
+    post:
+      summary: Generate registration challenge
+      description: |
+        Generates a cryptographic challenge for WebAuthn credential registration.
+
+        The challenge is stored server-side with a 5-minute TTL and must be used
+        in the subsequent verification request. Returns all necessary data for
+        the browser's `navigator.credentials.create()` call.
+
+        ## Process
+        1. Client sends username and credential details
+        2. Server validates user exists
+        3. Server generates secure random challenge (32 bytes)
+        4. Server stores challenge with session ID and TTL
+        5. Server returns challenge and WebAuthn options
+        6. Client uses response to call `navigator.credentials.create()`
+
+      operationId: registrationChallenge
+      tags:
+        - Registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationChallengeRequest'
+            examples:
+              passwordless:
+                summary: Passwordless registration
+                value:
+                  username: user@example.com
+                  displayName: John Doe
+                  credentialName: My Security Key
+                  type: passwordless
+              twofactor:
+                summary: Two-factor registration
+                value:
+                  username: user@example.com
+                  displayName: John Doe
+                  credentialName: YubiKey 5C
+                  type: twofactor
+      responses:
+        '200':
+          description: Challenge generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationChallengeResponse'
+              example:
+                sessionId: 550e8400-e29b-41d4-a716-446655440000
+                challenge: cGxlYXNlX2RvX25vdF91c2VfdGhpc19jaGFsbGVuZ2VfaW5fcHJvZHVjdGlvbg
+                user:
+                  id: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+                  name: user@example.com
+                  displayName: John Doe
+                rp:
+                  name: Keycloak
+                  id: keycloak.example.com
+                pubKeyCredParams:
+                  - type: public-key
+                    alg: -7
+                  - type: public-key
+                    alg: -257
+                timeout: 60000
+                attestation: direct
+                authenticatorSelection:
+                  authenticatorAttachment: platform
+                  requireResidentKey: false
+                  userVerification: preferred
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /register/verify:
+    post:
+      summary: Verify registration and store credential
+      description: |
+        Verifies the attestation response from the authenticator and stores
+        the WebAuthn credential in the user's account.
+
+        ## Verification Process
+        1. Retrieve and validate challenge from session
+        2. Verify challenge hasn't expired (5 min TTL)
+        3. Parse and validate client data JSON
+        4. Verify client data type is "webauthn.create"
+        5. Verify challenge matches expected value
+        6. Parse CBOR attestation object
+        7. Extract credential ID and public key
+        8. Store credential with metadata
+        9. Clear challenge from cache
+        10. Generate access and refresh tokens
+
+        ## Security Checks
+        - Challenge expiration validation
+        - Challenge value matching
+        - Client data type verification
+        - Origin validation (production should validate against allowed origins)
+        - Attestation object parsing
+
+      operationId: verifyRegistration
+      tags:
+        - Registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationVerifyRequest'
+            example:
+              sessionId: 550e8400-e29b-41d4-a716-446655440000
+              response:
+                id: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                rawId: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                response:
+                  clientDataJSON: eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiY0d4bFlYTmxYMlJ2WDI1dmRGOTFjMlZmZEdocGMxOWphR0ZzYkdWdVoyVmZhVzVmY0hKdlpIVmpkR2x2Ym1vIiwib3JpZ2luIjoiaHR0cHM6Ly9rZXljbG9hay5leGFtcGxlLmNvbSJ9
+                  attestationObject: o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAK3OAAI1vMYKZIsLJfHwVQMAIAGhXZHA-Erj4xfo8FKEcB_PmR7mOUVuOn7GZiDdPNKypQECAyYgASFYIHSqxGIhJKfRJW3kW5OLY_mNuZRfCpbf_jNGTQ2NVE5-IlggXRN4R4GG6R1TJ3S8bCzWC5wk9iU6oEiF1XdM1oWbKkI
+                type: public-key
+              credentialName: My Security Key
+              type: passwordless
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationVerifyResponse'
+              example:
+                success: true
+                credentialId: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                accessToken: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+                refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                expiresIn: 300
+                tokenType: Bearer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Challenge expired or verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                challengeExpired:
+                  summary: Challenge expired
+                  value:
+                    error: CHALLENGE_EXPIRED
+                    error_description: Challenge expired or not found
+                    timestamp: 1706270400000
+                verificationFailed:
+                  summary: Verification failed
+                  value:
+                    error: VERIFICATION_FAILED
+                    error_description: Credential verification failed
+                    timestamp: 1706270400000
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/challenge:
+    post:
+      summary: Generate authentication challenge
+      description: |
+        Generates a cryptographic challenge for WebAuthn authentication.
+
+        The challenge is stored with a 5-minute TTL and associated with the user's
+        registered credentials. Returns allowed credentials list for the browser's
+        `navigator.credentials.get()` call.
+
+        ## Process
+        1. Client sends username
+        2. Server validates user exists
+        3. Server retrieves user's registered credentials
+        4. Server generates secure random challenge (32 bytes)
+        5. Server stores challenge with session ID
+        6. Server returns challenge and allowed credentials
+        7. Client uses response to call `navigator.credentials.get()`
+
+      operationId: authenticationChallenge
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthChallengeRequest'
+            example:
+              username: user@example.com
+      responses:
+        '200':
+          description: Challenge generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationChallengeResponse'
+              example:
+                sessionId: 650e8400-e29b-41d4-a716-446655440001
+                challenge: YW5vdGhlcl9zZWN1cmVfY2hhbGxlbmdlX2Zvcl9hdXRoZW50aWNhdGlvbg
+                timeout: 60000
+                rpId: keycloak.example.com
+                userVerification: preferred
+                allowCredentials:
+                  - type: public-key
+                    id: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                    transports:
+                      - usb
+                      - nfc
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/verify:
+    post:
+      summary: Verify authentication assertion
+      description: |
+        Verifies the cryptographic assertion from the authenticator and
+        authenticates the user. On success, generates access and refresh tokens.
+
+        ## Verification Process
+        1. Retrieve and validate challenge from session
+        2. Parse client data JSON
+        3. Verify client data type is "webauthn.get"
+        4. Verify challenge matches expected value
+        5. Parse authenticator data (flags, sign count)
+        6. Retrieve stored credential by ID
+        7. Verify cryptographic signature using stored public key
+        8. Validate sign count (detect cloned authenticators)
+        9. Update credential metadata (sign count, last used)
+        10. Clear challenge from cache
+        11. Generate access and refresh tokens
+
+        ## Security Features
+        - Signature verification using ECDSA/RSA
+        - Sign count validation to detect cloned authenticators
+        - User presence (UP) flag verification
+        - User verification (UV) flag validation
+        - Challenge expiration enforcement
+
+      operationId: verifyAuthentication
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthVerifyRequest'
+            example:
+              sessionId: 650e8400-e29b-41d4-a716-446655440001
+              response:
+                id: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                rawId: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                response:
+                  clientDataJSON: eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiWVc1dmRHaGxjbDl6WldOMWNtVmZZMmhoYkd4bGJtZGxYMlp2Y2w5aGRYUm9aVzUwYVdOaGRHbHZiZyIsIm9yaWdpbiI6Imh0dHBzOi8va2V5Y2xvYWsuZXhhbXBsZS5jb20ifQ
+                  authenticatorData: SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAg
+                  signature: MEUCIQC3EcfmAKjlHxL7wLGOHBZs4FG4XsQWkd2bJj8p9m1G0wIgWlV5D3UJG4w8AqY7J5rlz_uZgJ8QTQPQvN1MiKZvz6U
+                  userHandle: YTBlZWJjOTktOWMwYi00ZWY4LWJiNmQtNmJiOWJkMzgwYTEx
+                type: public-key
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthVerifyResponse'
+              example:
+                success: true
+                accessToken: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+                refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                expiresIn: 300
+                tokenType: Bearer
+                userId: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+                username: user@example.com
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                challengeExpired:
+                  summary: Challenge expired
+                  value:
+                    error: CHALLENGE_EXPIRED
+                    error_description: Challenge expired or not found
+                    timestamp: 1706270400000
+                invalidCredential:
+                  summary: Invalid credential
+                  value:
+                    error: INVALID_CREDENTIAL
+                    error_description: Credential not found or signature verification failed
+                    timestamp: 1706270400000
+                signCountError:
+                  summary: Sign count validation failed
+                  value:
+                    error: SIGN_COUNT_ERROR
+                    error_description: Sign count validation failed - possible authenticator clone
+                    timestamp: 1706270400000
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /credentials:
+    get:
+      summary: List user's credentials
+      description: |
+        Returns a list of all WebAuthn credentials registered for the authenticated user.
+
+        Includes credential metadata such as:
+        - Credential ID
+        - Credential name (user-provided)
+        - Credential type (passwordless or twofactor)
+        - Creation timestamp
+        - Last used timestamp
+        - AAGUID (authenticator model identifier)
+
+        **Authentication Required**: Bearer token in Authorization header
+
+      operationId: listCredentials
+      tags:
+        - Credential Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Credentials retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialListResponse'
+              example:
+                credentials:
+                  - credentialId: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+                    credentialName: My Security Key
+                    type: passwordless
+                    createdAt: '2025-01-15T10:30:00Z'
+                    lastUsedAt: '2025-01-20T14:22:00Z'
+                    aaguid: 2fc0579f-8113-47ea-b116-bb5a8db9202a
+                  - credentialId: BbGelcE5TvQkG-kxVpSxI9-aIvZ6SX57gtanJO191sJ
+                    credentialName: YubiKey 5C
+                    type: twofactor
+                    createdAt: '2025-01-10T08:15:00Z'
+                    lastUsedAt: '2025-01-19T16:45:00Z'
+                    aaguid: cb69481e-8ff7-4039-93ec-0a2729a154a8
+                total: 2
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /credentials/{credentialId}:
+    delete:
+      summary: Delete a credential
+      description: |
+        Removes a specific WebAuthn credential from the user's account.
+
+        The user can only delete their own credentials. The credentialId must be
+        base64url-encoded and match a credential in the user's account.
+
+        **Authentication Required**: Bearer token in Authorization header
+
+      operationId: deleteCredential
+      tags:
+        - Credential Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: credentialId
+          in: path
+          required: true
+          description: Base64url-encoded credential ID to delete
+          schema:
+            type: string
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+      responses:
+        '204':
+          description: Credential deleted successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Credential not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: CREDENTIAL_NOT_FOUND
+                error_description: Credential not found
+                timestamp: 1706270400000
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token obtained from successful registration or authentication.
+        Include in Authorization header as: `Bearer <token>`
+
+  schemas:
+    RegistrationChallengeRequest:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+          format: email
+          description: User's username or email address
+          example: user@example.com
+        displayName:
+          type: string
+          description: User's display name for the credential
+          example: John Doe
+        credentialName:
+          type: string
+          description: User-provided name for the credential
+          example: My Security Key
+        type:
+          type: string
+          enum:
+            - passwordless
+            - twofactor
+          default: passwordless
+          description: |
+            Credential type:
+            - `passwordless`: Used as primary authentication method
+            - `twofactor`: Used as second factor after password
+          example: passwordless
+
+    RegistrationChallengeResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Session ID for this registration attempt (5 min TTL)
+          example: 550e8400-e29b-41d4-a716-446655440000
+        challenge:
+          type: string
+          format: byte
+          description: Base64url-encoded cryptographic challenge
+          example: cGxlYXNlX2RvX25vdF91c2VfdGhpc19jaGFsbGVuZ2VfaW5fcHJvZHVjdGlvbg
+        user:
+          type: object
+          description: User information for WebAuthn registration
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: User ID
+              example: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+            name:
+              type: string
+              description: Username
+              example: user@example.com
+            displayName:
+              type: string
+              description: User display name
+              example: John Doe
+        rp:
+          type: object
+          description: Relying party (server) information
+          properties:
+            name:
+              type: string
+              description: Relying party name
+              example: Keycloak
+            id:
+              type: string
+              description: Relying party identifier (domain)
+              example: keycloak.example.com
+        pubKeyCredParams:
+          type: array
+          description: Supported public key algorithms
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                example: public-key
+              alg:
+                type: integer
+                description: COSE algorithm identifier (-7=ES256, -257=RS256)
+                example: -7
+        timeout:
+          type: integer
+          description: Timeout in milliseconds
+          example: 60000
+        attestation:
+          type: string
+          enum:
+            - none
+            - indirect
+            - direct
+          description: Attestation conveyance preference
+          example: direct
+        authenticatorSelection:
+          type: object
+          description: Authenticator selection criteria
+          properties:
+            authenticatorAttachment:
+              type: string
+              enum:
+                - platform
+                - cross-platform
+              description: Preferred authenticator type
+              example: platform
+            requireResidentKey:
+              type: boolean
+              description: Require discoverable credential
+              example: false
+            userVerification:
+              type: string
+              enum:
+                - required
+                - preferred
+                - discouraged
+              description: User verification requirement
+              example: preferred
+
+    RegistrationVerifyRequest:
+      type: object
+      required:
+        - sessionId
+        - response
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Session ID from challenge response
+          example: 550e8400-e29b-41d4-a716-446655440000
+        response:
+          $ref: '#/components/schemas/AttestationResponse'
+        credentialName:
+          type: string
+          description: User-provided name for the credential
+          example: My Security Key
+        type:
+          type: string
+          enum:
+            - passwordless
+            - twofactor
+          default: passwordless
+          description: Credential type
+          example: passwordless
+
+    AttestationResponse:
+      type: object
+      description: Attestation response from WebAuthn API
+      required:
+        - id
+        - rawId
+        - response
+        - type
+      properties:
+        id:
+          type: string
+          description: Base64url-encoded credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        rawId:
+          type: string
+          description: Base64url-encoded raw credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        response:
+          type: object
+          required:
+            - clientDataJSON
+            - attestationObject
+          properties:
+            clientDataJSON:
+              type: string
+              format: byte
+              description: Base64url-encoded client data JSON
+            attestationObject:
+              type: string
+              format: byte
+              description: Base64url-encoded attestation object (CBOR)
+        type:
+          type: string
+          enum:
+            - public-key
+          description: Credential type
+          example: public-key
+
+    RegistrationVerifyResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Registration success status
+          example: true
+        credentialId:
+          type: string
+          description: Base64url-encoded credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        accessToken:
+          type: string
+          description: JWT access token
+          example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          description: JWT refresh token
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        expiresIn:
+          type: integer
+          description: Token expiration time in seconds
+          example: 300
+        tokenType:
+          type: string
+          description: Token type
+          example: Bearer
+
+    AuthChallengeRequest:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+          description: Username or email address
+          example: user@example.com
+
+    AuthenticationChallengeResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Session ID for this authentication attempt (5 min TTL)
+          example: 650e8400-e29b-41d4-a716-446655440001
+        challenge:
+          type: string
+          format: byte
+          description: Base64url-encoded cryptographic challenge
+          example: YW5vdGhlcl9zZWN1cmVfY2hhbGxlbmdlX2Zvcl9hdXRoZW50aWNhdGlvbg
+        timeout:
+          type: integer
+          description: Timeout in milliseconds
+          example: 60000
+        rpId:
+          type: string
+          description: Relying party identifier
+          example: keycloak.example.com
+        userVerification:
+          type: string
+          enum:
+            - required
+            - preferred
+            - discouraged
+          description: User verification requirement
+          example: preferred
+        allowCredentials:
+          type: array
+          description: List of allowed credentials for this user
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                example: public-key
+              id:
+                type: string
+                description: Base64url-encoded credential ID
+                example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+              transports:
+                type: array
+                description: Supported transports
+                items:
+                  type: string
+                  enum:
+                    - usb
+                    - nfc
+                    - ble
+                    - internal
+                example:
+                  - usb
+                  - nfc
+
+    AuthVerifyRequest:
+      type: object
+      required:
+        - sessionId
+        - response
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Session ID from challenge response
+          example: 650e8400-e29b-41d4-a716-446655440001
+        response:
+          $ref: '#/components/schemas/AssertionResponse'
+
+    AssertionResponse:
+      type: object
+      description: Assertion response from WebAuthn API
+      required:
+        - id
+        - rawId
+        - response
+        - type
+      properties:
+        id:
+          type: string
+          description: Base64url-encoded credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        rawId:
+          type: string
+          description: Base64url-encoded raw credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        response:
+          type: object
+          required:
+            - clientDataJSON
+            - authenticatorData
+            - signature
+          properties:
+            clientDataJSON:
+              type: string
+              format: byte
+              description: Base64url-encoded client data JSON
+            authenticatorData:
+              type: string
+              format: byte
+              description: Base64url-encoded authenticator data
+            signature:
+              type: string
+              format: byte
+              description: Base64url-encoded signature
+            userHandle:
+              type: string
+              format: byte
+              description: Base64url-encoded user handle (optional)
+        type:
+          type: string
+          enum:
+            - public-key
+          description: Credential type
+          example: public-key
+
+    AuthVerifyResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Authentication success status
+          example: true
+        accessToken:
+          type: string
+          description: JWT access token
+          example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          description: JWT refresh token
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        expiresIn:
+          type: integer
+          description: Token expiration time in seconds
+          example: 300
+        tokenType:
+          type: string
+          description: Token type
+          example: Bearer
+        userId:
+          type: string
+          format: uuid
+          description: Authenticated user ID
+          example: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+        username:
+          type: string
+          description: Authenticated username
+          example: user@example.com
+
+    CredentialListResponse:
+      type: object
+      properties:
+        credentials:
+          type: array
+          description: List of registered credentials
+          items:
+            $ref: '#/components/schemas/WebAuthnCredential'
+        total:
+          type: integer
+          description: Total number of credentials
+          example: 2
+
+    WebAuthnCredential:
+      type: object
+      description: WebAuthn credential metadata
+      properties:
+        credentialId:
+          type: string
+          description: Base64url-encoded credential ID
+          example: AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmIN080rI
+        credentialName:
+          type: string
+          description: User-provided credential name
+          example: My Security Key
+        type:
+          type: string
+          enum:
+            - passwordless
+            - twofactor
+          description: Credential type
+          example: passwordless
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp (ISO 8601)
+          example: '2025-01-15T10:30:00Z'
+        lastUsedAt:
+          type: string
+          format: date-time
+          description: Last used timestamp (ISO 8601)
+          example: '2025-01-20T14:22:00Z'
+        aaguid:
+          type: string
+          description: Base64url-encoded AAGUID (authenticator model identifier)
+          example: 2fc0579f-8113-47ea-b116-bb5a8db9202a
+        signCount:
+          type: integer
+          format: int64
+          description: Current signature counter value
+          example: 42
+        transportHints:
+          type: array
+          description: Supported transport methods
+          items:
+            type: string
+            enum:
+              - usb
+              - nfc
+              - ble
+              - internal
+          example:
+            - usb
+            - nfc
+
+    ErrorResponse:
+      type: object
+      description: Error response for failed requests
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: VALIDATION_ERROR
+        error_description:
+          type: string
+          description: Human-readable error description
+          example: Username is required
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+          example: 1706270400000
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingUsername:
+              summary: Missing username
+              value:
+                error: VALIDATION_ERROR
+                error_description: Username is required
+                timestamp: 1706270400000
+            missingSessionId:
+              summary: Missing session ID
+              value:
+                error: VALIDATION_ERROR
+                error_description: Session ID is required
+                timestamp: 1706270400000
+
+    UserNotFound:
+      description: User not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: USER_NOT_FOUND
+            error_description: User not found
+            timestamp: 1706270400000
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: UNAUTHORIZED
+            error_description: Authentication required
+            timestamp: 1706270400000
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INTERNAL_ERROR
+            error_description: An unexpected error occurred
+            timestamp: 1706270400000
