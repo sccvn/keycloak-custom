@@ -1,15 +1,14 @@
 package com.inventage.keycloak.webauthn.util;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.*;
 
-import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.Set;
 
-import static org.assertj.core.api.Assertions.*;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 
 /**
  * TDD Unit Tests for Challenge Generator
@@ -32,7 +31,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate challenge with default length")
     void testGenerateChallenge_DefaultLength() {
         // Act
-        String challenge = ChallengeGenerator.generate();
+        String challenge = ChallengeGenerator.generateBase64Url();
 
         // Assert
         assertThat(challenge).isNotNull();
@@ -50,7 +49,7 @@ class ChallengeGeneratorTest {
         int customLength = 48;
 
         // Act
-        String challenge = ChallengeGenerator.generate(customLength);
+        byte[] challenge = ChallengeGenerator.generate(customLength);
 
         // Assert
         assertThat(challenge).isNotNull();
@@ -63,7 +62,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate URL-safe Base64 encoded challenge")
     void testGenerateChallenge_UrlSafe() {
         // Act
-        String challenge = ChallengeGenerator.generate();
+        String challenge = ChallengeGenerator.generateBase64Url();
 
         // Assert
         assertThat(challenge).doesNotContain("+");
@@ -80,7 +79,7 @@ class ChallengeGeneratorTest {
 
         // Act
         for (int i = 0; i < 1000; i++) {
-            challenges.add(ChallengeGenerator.generate());
+            challenges.add(ChallengeGenerator.generateBase64Url());
         }
 
         // Assert - all challenges should be unique
@@ -91,8 +90,8 @@ class ChallengeGeneratorTest {
     @DisplayName("Should use cryptographically secure random")
     void testGenerateChallenge_CryptographicallySecurity() {
         // Arrange
-        String challenge1 = ChallengeGenerator.generate();
-        String challenge2 = ChallengeGenerator.generate();
+        String challenge1 = ChallengeGenerator.generateBase64Url();
+        String challenge2 = ChallengeGenerator.generateBase64Url();
 
         // Assert - challenges should be different and unpredictable
         assertThat(challenge1).isNotEqualTo(challenge2);
@@ -134,7 +133,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should accept minimum valid challenge length")
     void testGenerateChallenge_MinimumLength() {
         // Act
-        String challenge = ChallengeGenerator.generate(MIN_CHALLENGE_LENGTH);
+        byte[] challenge = ChallengeGenerator.generate(MIN_CHALLENGE_LENGTH);
 
         // Assert
         byte[] decoded = Base64.getUrlDecoder().decode(challenge);
@@ -145,7 +144,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should accept maximum valid challenge length")
     void testGenerateChallenge_MaximumLength() {
         // Act
-        String challenge = ChallengeGenerator.generate(MAX_CHALLENGE_LENGTH);
+        byte[] challenge = ChallengeGenerator.generate(MAX_CHALLENGE_LENGTH);
 
         // Assert
         byte[] decoded = Base64.getUrlDecoder().decode(challenge);
@@ -156,7 +155,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate challenges with high entropy")
     void testGenerateChallenge_HighEntropy() {
         // Act
-        String challenge = ChallengeGenerator.generate();
+        String challenge = ChallengeGenerator.generateBase64Url();
         byte[] bytes = Base64.getUrlDecoder().decode(challenge);
 
         // Assert - check for reasonable entropy
@@ -174,7 +173,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate valid WebAuthn challenge format")
     void testGenerateChallenge_WebAuthnFormat() {
         // Act
-        String challenge = ChallengeGenerator.generate();
+        String challenge = ChallengeGenerator.generateBase64Url();
 
         // Assert - WebAuthn spec requires challenges to be at least 16 bytes
         byte[] decoded = Base64.getUrlDecoder().decode(challenge);
@@ -199,7 +198,7 @@ class ChallengeGeneratorTest {
             threads[i] = new Thread(() -> {
                 for (int j = 0; j < challengesPerThread; j++) {
                     synchronized (allChallenges) {
-                        allChallenges.add(ChallengeGenerator.generate());
+                        allChallenges.add(ChallengeGenerator.generateBase64Url());
                     }
                 }
             });
@@ -245,7 +244,7 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate challenge compatible with WebAuthn specification")
     void testGenerateChallenge_WebAuthnSpecCompliance() {
         // Act
-        String challenge = ChallengeGenerator.generate();
+        String challenge = ChallengeGenerator.generateBase64Url();
 
         // Assert - WebAuthn spec compliance
         // 1. Must be base64url encoded
@@ -267,13 +266,13 @@ class ChallengeGeneratorTest {
     @DisplayName("Should generate timestamp-based challenge ID")
     void testGenerateChallengeId() {
         // Act
-        String challengeId1 = ChallengeGenerator.generateId();
+        String challengeId1 = ChallengeGenerator.generateBase64Url();
         try {
             Thread.sleep(10); // Ensure different timestamp
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        String challengeId2 = ChallengeGenerator.generateId();
+        String challengeId2 = ChallengeGenerator.generateBase64Url();
 
         // Assert
         assertThat(challengeId1).isNotNull();

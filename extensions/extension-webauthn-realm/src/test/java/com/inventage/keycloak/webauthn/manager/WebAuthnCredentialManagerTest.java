@@ -1,22 +1,32 @@
 package com.inventage.keycloak.webauthn.manager;
 
-import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.keycloak.credential.CredentialModel;
-import org.keycloak.models.*;
+import org.keycloak.credential.UserCredentialManager;
+import org.keycloak.models.KeycloakContext;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
+import org.keycloak.models.UserProvider;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
-import java.util.stream.Stream;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+import com.inventage.keycloak.webauthn.infrastructure.service.WebAuthnCredentialManager;
 
 /**
  * TDD Unit Tests for WebAuthn Credential Manager

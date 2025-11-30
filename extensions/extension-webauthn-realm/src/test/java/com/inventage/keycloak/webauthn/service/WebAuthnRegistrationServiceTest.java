@@ -1,28 +1,35 @@
 package com.inventage.keycloak.webauthn.service;
 
-import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
-import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
-import com.webauthn4j.data.AttestationConveyancePreference;
-import com.webauthn4j.data.UserVerificationRequirement;
-import com.webauthn4j.data.attestation.statement.COSEAlgorithmIdentifier;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.keycloak.models.*;
+import org.keycloak.credential.CredentialModel;
+import org.keycloak.credential.UserCredentialManager;
+import org.keycloak.models.KeycloakContext;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
+import org.keycloak.models.UserProvider;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.*;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
+import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+import com.inventage.keycloak.webauthn.infrastructure.service.WebAuthnRegistrationService;
 
 /**
  * TDD Unit Tests for WebAuthn Registration Service
@@ -89,10 +96,11 @@ class WebAuthnRegistrationServiceTest {
         when(session.users().getUserById(realm, TEST_USER_ID)).thenReturn(user);
 
         // Act
-        Map<String, Object> options = registrationService.generateRegistrationOptions(
-            TEST_USER_ID,
-            relyingPartyConfig
-        );
+        Map<String, Object> options = registrationService.generateChallenge(TEST_USERNAME, TEST_RP_ID, TEST_REALM_NAME);
+        // registrationService.generateRegistrationOptions(
+        //     TEST_USER_ID,
+        //     relyingPartyConfig
+        // );
 
         // Assert
         assertThat(options).isNotNull();
@@ -147,10 +155,16 @@ class WebAuthnRegistrationServiceTest {
 
         // Act & Assert
         assertThatThrownBy(() ->
-            registrationService.generateRegistrationOptions(TEST_USER_ID, relyingPartyConfig)
+            registrationService.generateChallenge(TEST_USERNAME, TEST_RP_ID, TEST_REALM_NAME)
         )
         .isInstanceOf(WebAuthnException.class)
         .hasMessageContaining("User not found");
+        // Deprecated:
+        // assertThatThrownBy(() ->
+        //     registrationService.generateRegistrationOptions(TEST_USER_ID, relyingPartyConfig)
+        // )
+        // .isInstanceOf(WebAuthnException.class)
+        // .hasMessageContaining("User not found");
     }
 
     @Test
