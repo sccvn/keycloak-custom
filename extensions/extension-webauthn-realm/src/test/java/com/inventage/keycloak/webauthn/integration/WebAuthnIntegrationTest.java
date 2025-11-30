@@ -1,8 +1,27 @@
 package com.inventage.keycloak.webauthn.integration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dasniko.testcontainers.keycloak.KeycloakContainer;
-import org.junit.jupiter.api.*;
+import static org.assertj.core.api.Assertions.*;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
 import org.keycloak.admin.client.resource.RealmResource;
@@ -10,19 +29,15 @@ import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import static org.assertj.core.api.Assertions.*;
+import dasniko.testcontainers.keycloak.KeycloakContainer;
 
 /**
  * Integration Tests for WebAuthn Extension using Testcontainers
@@ -49,11 +64,13 @@ class WebAuthnIntegrationTest {
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        DockerImageName.parse("postgres:17-alpine")
+        DockerImageName.parse("postgres:17")
     )
     .withDatabaseName("keycloak")
     .withUsername("keycloak")
-    .withPassword("keycloak");
+    .withPassword("keycloak")
+    .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(30)))
+    .withReuse(false);
 
     @Container
     static KeycloakContainer keycloak = new KeycloakContainer(
@@ -61,7 +78,8 @@ class WebAuthnIntegrationTest {
     )
     .withRealmImportFile("test-realm.json")
     .withEnv("KC_DB", "postgres")
-    .withEnv("KC_DB_URL", "jdbc:postgresql://postgres:5432/keycloak")
+    // .withEnv("KC_DB_URL", postgres.getJdbcUrl())
+    // .withEnv("KC_DB_URL", "jdbc:postgresql://postgres:5432/keycloak")
     .withEnv("KC_DB_USERNAME", "keycloak")
     .withEnv("KC_DB_PASSWORD", "keycloak")
     .withEnv("KC_HEALTH_ENABLED", "true")
@@ -77,6 +95,9 @@ class WebAuthnIntegrationTest {
 
     @BeforeAll
     static void setUp() {
+        Startables.deepStart(Stream.of(postgres)).join();
+        keycloak.withEnv("KC_DB_URL", postgres.getJdbcUrl());
+        Startables.deepStart(Stream.of(keycloak)).join();
         // Initialize Keycloak admin client
         adminClient = KeycloakBuilder.builder()
             .serverUrl(keycloak.getAuthServerUrl())

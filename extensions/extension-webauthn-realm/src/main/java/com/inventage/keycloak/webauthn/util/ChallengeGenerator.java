@@ -10,6 +10,8 @@ public class ChallengeGenerator {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int DEFAULT_LENGTH = 32;
+    private static final int MIN_LENGTH = 16;
+    private static final int MAX_LENGTH = 64;
 
     /**
      * Private constructor to prevent instantiation.
@@ -23,8 +25,14 @@ public class ChallengeGenerator {
      *
      * @param length Challenge length in bytes
      * @return Random challenge bytes
+     * @throws IllegalArgumentException if length is not between 16 and 64 bytes
      */
     public static byte[] generate(int length) {
+        if (length < MIN_LENGTH || length > MAX_LENGTH) {
+            throw new IllegalArgumentException(
+                String.format("Challenge length must be between %d and %d bytes, got %d",
+                    MIN_LENGTH, MAX_LENGTH, length));
+        }
         byte[] challenge = new byte[length];
         RANDOM.nextBytes(challenge);
         return challenge;

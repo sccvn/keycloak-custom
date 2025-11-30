@@ -53,9 +53,7 @@ class ChallengeGeneratorTest {
 
         // Assert
         assertThat(challenge).isNotNull();
-
-        byte[] decoded = Base64.getUrlDecoder().decode(challenge);
-        assertThat(decoded).hasSize(customLength);
+        assertThat(challenge).hasSize(customLength);
     }
 
     @Test
@@ -136,8 +134,7 @@ class ChallengeGeneratorTest {
         byte[] challenge = ChallengeGenerator.generate(MIN_CHALLENGE_LENGTH);
 
         // Assert
-        byte[] decoded = Base64.getUrlDecoder().decode(challenge);
-        assertThat(decoded).hasSize(MIN_CHALLENGE_LENGTH);
+        assertThat(challenge).hasSize(MIN_CHALLENGE_LENGTH);
     }
 
     @Test
@@ -147,8 +144,7 @@ class ChallengeGeneratorTest {
         byte[] challenge = ChallengeGenerator.generate(MAX_CHALLENGE_LENGTH);
 
         // Assert
-        byte[] decoded = Base64.getUrlDecoder().decode(challenge);
-        assertThat(decoded).hasSize(MAX_CHALLENGE_LENGTH);
+        assertThat(challenge).hasSize(MAX_CHALLENGE_LENGTH);
     }
 
     @Test
@@ -221,7 +217,7 @@ class ChallengeGeneratorTest {
         int[] bitCounts = new int[8]; // Count bits set in each position
 
         for (int i = 0; i < 1000; i++) {
-            byte[] challenge = Base64.getUrlDecoder().decode(ChallengeGenerator.generate());
+            byte[] challenge = ChallengeGenerator.generate();
 
             for (byte b : challenge) {
                 for (int bit = 0; bit < 8; bit++) {
@@ -263,15 +259,10 @@ class ChallengeGeneratorTest {
     }
 
     @Test
-    @DisplayName("Should generate timestamp-based challenge ID")
+    @DisplayName("Should generate unique random challenges")
     void testGenerateChallengeId() {
         // Act
         String challengeId1 = ChallengeGenerator.generateBase64Url();
-        try {
-            Thread.sleep(10); // Ensure different timestamp
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
         String challengeId2 = ChallengeGenerator.generateBase64Url();
 
         // Assert
@@ -279,7 +270,8 @@ class ChallengeGeneratorTest {
         assertThat(challengeId2).isNotNull();
         assertThat(challengeId1).isNotEqualTo(challengeId2);
 
-        // Challenge IDs should be sortable by time
-        assertThat(challengeId1).isLessThan(challengeId2);
+        // Both should be valid Base64URL encoded strings
+        assertThat(challengeId1).matches("^[A-Za-z0-9_-]+$");
+        assertThat(challengeId2).matches("^[A-Za-z0-9_-]+$");
     }
 }

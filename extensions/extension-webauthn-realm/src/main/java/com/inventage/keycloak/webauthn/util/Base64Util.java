@@ -33,8 +33,12 @@ public class Base64Util {
      *
      * @param data The base64url encoded string
      * @return Decoded byte array
+     * @throws IllegalArgumentException if data is null
      */
     public static byte[] decode(String data) {
+        if (data == null) {
+            throw new IllegalArgumentException("Input cannot be null");
+        }
         return DECODER.decode(data);
     }
 
@@ -43,8 +47,12 @@ public class Base64Util {
      *
      * @param data The string to encode
      * @return Base64url encoded string
+     * @throws IllegalArgumentException if data is null
      */
     public static String encode(String data) {
+        if (data == null) {
+            throw new IllegalArgumentException("Input cannot be null");
+        }
         return encodeToString(data.getBytes());
     }
 

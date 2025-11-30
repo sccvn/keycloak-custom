@@ -81,7 +81,7 @@ class Base64UtilTest {
     }
 
     @Test
-    @DisplayName("Should encode to standard Base64 with padding")
+    @DisplayName("Should encode to URL-safe Base64 without padding")
     void testEncodeBase64_WithPadding() {
         // Arrange
         String input = "Test";
@@ -91,7 +91,9 @@ class Base64UtilTest {
 
         // Assert
         assertThat(encoded).isNotNull();
-        assertThat(encoded).endsWith("="); // Has padding
+        assertThat(encoded).doesNotContain("="); // No padding (URL-safe)
+        assertThat(encoded).doesNotContain("+"); // URL-safe
+        assertThat(encoded).doesNotContain("/"); // URL-safe
 
         byte[] decoded = Base64Util.decode(encoded);
         assertThat(new String(decoded, StandardCharsets.UTF_8)).isEqualTo(input);
@@ -176,32 +178,36 @@ class Base64UtilTest {
     }
 
     @Test
-    @DisplayName("Should convert Base64 to Base64URL")
+    @DisplayName("Should encode string and verify URL-safe encoding")
     void testConvertBase64ToBase64Url() {
-        // Arrange
-        String standardBase64 = "SGVsbG8rV29ybGQ/"; // Contains + and / characters
+        // Arrange - data that would produce + and / in standard Base64
+        String input = "Hello?World>";
 
         // Act
-        String base64Url = Base64Util.decodeToString(standardBase64);
+        String encoded = Base64Util.encode(input);
 
-        // Assert
-        assertThat(base64Url).doesNotContain("+");
-        assertThat(base64Url).doesNotContain("/");
-        assertThat(base64Url).doesNotContain("=");
+        // Assert - verify it uses URL-safe characters
+        assertThat(encoded).doesNotContain("+"); // URL-safe encoding
+        assertThat(encoded).doesNotContain("/"); // URL-safe encoding
+        assertThat(encoded).doesNotContain("=");  // No padding
+
+        // Verify round-trip
+        String decoded = Base64Util.decodeToString(encoded);
+        assertThat(decoded).isEqualTo(input);
     }
 
     @Test
-    @DisplayName("Should convert Base64URL to Base64")
+    @DisplayName("Should decode Base64URL with URL-safe characters")
     void testConvertBase64UrlToBase64() {
         // Arrange
-        String base64Url = "SGVsbG8tV29ybGQ_"; // Contains - and _ characters
+        String base64Url = "SGVsbG8tV29ybGQ_"; // Base64URL encoded string
+        String expected = "Hello-World?"; // Expected decoded output
 
         // Act
-        String standardBase64 = Base64Util.decodeToString(base64Url);
+        String decoded = Base64Util.decodeToString(base64Url);
 
         // Assert
-        assertThat(standardBase64).doesNotContain("-");
-        assertThat(standardBase64).doesNotContain("_");
+        assertThat(decoded).isEqualTo(expected);
     }
 
     @Test
