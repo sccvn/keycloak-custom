@@ -1,26 +1,29 @@
 package com.inventage.keycloak.webauthn.infrastructure.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
-import com.inventage.keycloak.webauthn.infrastructure.exception.RegistrationException;
-import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
-import com.inventage.keycloak.webauthn.util.Base64Util;
-import io.inventage.keycloak.custom.webauthn.infrastructure.model.CredentialType;
-import io.inventage.keycloak.custom.webauthn.infrastructure.model.WebAuthnCredential;
-import com.webauthn4j.converter.util.CborConverter;
-import com.webauthn4j.converter.util.ObjectConverter;
-import com.webauthn4j.data.*;
-import com.webauthn4j.data.attestation.AttestationObject;
-import com.webauthn4j.data.client.CollectedClientData;
-import com.webauthn4j.data.client.ClientDataType;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.jboss.logging.Logger;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 
-import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.util.*;
+import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
+import com.inventage.keycloak.webauthn.infrastructure.exception.RegistrationException;
+import com.inventage.keycloak.webauthn.util.Base64Util;
+import com.webauthn4j.converter.util.CborConverter;
+import com.webauthn4j.converter.util.ObjectConverter;
+import com.webauthn4j.data.attestation.AttestationObject;
+import com.webauthn4j.data.client.ClientDataType;
+import com.webauthn4j.data.client.CollectedClientData;
+
+import io.inventage.keycloak.custom.webauthn.infrastructure.model.CredentialType;
+import io.inventage.keycloak.custom.webauthn.infrastructure.model.WebAuthnCredential;
 
 /**
  * Service for WebAuthn credential registration.
@@ -192,8 +195,10 @@ public class WebAuthnRegistrationService {
             String expectedChallenge) throws RegistrationException {
         try {
             // Parse client data JSON
+            InputStream clientDataStream = new ByteArrayInputStream(clientDataBytes);
+            @SuppressWarnings("null")
             CollectedClientData clientData = converter.getJsonConverter()
-                    .readValue(clientDataBytes, CollectedClientData.class);
+                    .readValue(clientDataStream, CollectedClientData.class);
 
             // Verify type is "webauthn.create"
             if (!ClientDataType.WEBAUTHN_CREATE.equals(clientData.getType())) {
@@ -202,7 +207,7 @@ public class WebAuthnRegistrationService {
             }
 
             // Verify challenge matches
-            String receivedChallenge = Base64Util.encodeToString(clientData.getChallenge().getBytes());
+            String receivedChallenge = Base64Util.encodeToString(clientData.getChallenge().getValue());
             if (!expectedChallenge.equals(receivedChallenge)) {
                 LOG.warnf("Challenge mismatch: expected=%s, received=%s",
                         expectedChallenge, receivedChallenge);
@@ -233,6 +238,7 @@ public class WebAuthnRegistrationService {
     private AttestationObject parseAttestationObject(byte[] attestationBytes)
             throws RegistrationException {
         try {
+            @SuppressWarnings("null")
             AttestationObject attestationObject = cborConverter
                     .readValue(attestationBytes, AttestationObject.class);
 

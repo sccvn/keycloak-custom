@@ -1,24 +1,35 @@
 package com.inventage.keycloak.webauthn.infrastructure.service;
 
-import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
-import com.inventage.keycloak.webauthn.infrastructure.exception.InvalidCredentialException;
-import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
-import com.inventage.keycloak.webauthn.util.Base64Util;
-import io.inventage.keycloak.custom.webauthn.infrastructure.model.WebAuthnCredential;
-import com.webauthn4j.converter.util.CborConverter;
-import com.webauthn4j.converter.util.ObjectConverter;
-import com.webauthn4j.data.client.ClientDataType;
-import com.webauthn4j.data.client.CollectedClientData;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.security.KeyFactory;
+import java.security.MessageDigest;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.jboss.logging.Logger;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.*;
+import com.inventage.keycloak.webauthn.infrastructure.exception.ChallengeExpiredException;
+import com.inventage.keycloak.webauthn.infrastructure.exception.InvalidCredentialException;
+import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+import com.inventage.keycloak.webauthn.util.Base64Util;
+import com.webauthn4j.converter.util.CborConverter;
+import com.webauthn4j.converter.util.ObjectConverter;
+import com.webauthn4j.data.client.ClientDataType;
+import com.webauthn4j.data.client.CollectedClientData;
+
+import io.inventage.keycloak.custom.webauthn.infrastructure.model.WebAuthnCredential;
 
 /**
  * Service for WebAuthn authentication (assertion verification).
@@ -167,8 +178,10 @@ public class WebAuthnAuthenticationService {
     private CollectedClientData parseClientDataJSON(byte[] clientDataBytes)
             throws InvalidCredentialException {
         try {
+            InputStream clientDataStream = new ByteArrayInputStream(clientDataBytes);
+            @SuppressWarnings("null")
             CollectedClientData clientData = converter.getJsonConverter()
-                    .readValue(clientDataBytes, CollectedClientData.class);
+                    .readValue(clientDataStream, CollectedClientData.class);
 
             LOG.debugf("Client data parsed: type=%s, origin=%s",
                     clientData.getType(), clientData.getOrigin());
@@ -197,7 +210,7 @@ public class WebAuthnAuthenticationService {
         }
 
         // Verify challenge matches
-        String receivedChallenge = Base64Util.encodeToString(clientData.getChallenge().getBytes());
+        String receivedChallenge = Base64Util.encodeToString(clientData.getChallenge().getValue());
         if (!expectedChallenge.equals(receivedChallenge)) {
             LOG.warnf("Challenge mismatch: expected=%s, received=%s",
                     expectedChallenge, receivedChallenge);

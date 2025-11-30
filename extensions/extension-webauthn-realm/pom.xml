@@ -13,13 +13,15 @@
     <artifactId>extension-webauthn-realm</artifactId>
     <packaging>jar</packaging>
 
-    <name>Keycloak WebAuthn Realm Extension</name>
+    <name>${project.artifactId}</name>
     <description>WebAuthn credential management extension for Keycloak using WebAuthn4J</description>
 
     <properties>
         <webauthn4j.version>0.29.3.RELEASE</webauthn4j.version>
         <jackson.version>2.18.2</jackson.version>
         <bouncy-castle.version>1.79</bouncy-castle.version>
+        <jakarta.ws.rs-api.version>3.1.0</jakarta.ws.rs-api.version>
+        <jakarta.enterprise.cdi-api.version>4.0.0</jakarta.enterprise.cdi-api.version>
     </properties>
 
     <dependencies>
@@ -49,6 +51,16 @@
             <artifactId>keycloak-model-jpa</artifactId>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.resteasy</groupId>
+            <artifactId>resteasy-core</artifactId>
+            <version>6.2.5.Final</version>
+        </dependency>
 
         <!-- WebAuthn4J Dependencies -->
         <dependency>
@@ -62,7 +74,32 @@
             <version>${webauthn4j.version}</version>
         </dependency>
 
+        <!-- JAX-RS & Jakarta EE -->
+        <dependency>
+        <groupId>jakarta.ws.rs</groupId>
+        <artifactId>jakarta.ws.rs-api</artifactId>
+        <version>${jakarta.ws.rs-api.version}</version>
+        <scope>provided</scope>
+        </dependency>
+        <dependency>
+        <groupId>jakarta.enterprise</groupId>
+        <artifactId>jakarta.enterprise.cdi-api</artifactId>
+        <version>${jakarta.enterprise.cdi-api.version}</version>
+        </dependency>
+
         <!-- Jackson for JSON Processing (aligned with Keycloak) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

@@ -1,19 +1,27 @@
 package com.inventage.keycloak.webauthn.infrastructure.provider;
 
-import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.annotations.cache.NoCache;
+import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
-import org.keycloak.models.ClientModel;
 import org.keycloak.services.resource.RealmResourceProvider;
 
-import javax.ws.rs.*;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import java.util.HashMap;
-import java.util.Map;
+import com.inventage.keycloak.webauthn.infrastructure.exception.WebAuthnException;
+
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 /**
  * REST endpoints for WebAuthn credential registration and authentication.
@@ -125,7 +133,7 @@ public class WebAuthnRealmResourceProvider implements RealmResourceProvider {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @NoCache
-    public Response registrationChallenge(Map<String, Object> request) {
+    public Response registrationChallenge(Map<String, Object> request)  {
         LOG.debugf("Registration challenge requested for user: %s", request.get("username"));
 
         try {
@@ -157,9 +165,6 @@ public class WebAuthnRealmResourceProvider implements RealmResourceProvider {
             LOG.infof("Registration challenge generated for user: %s", username);
             return Response.ok(response).build();
 
-        } catch (WebAuthnException e) {
-            e.log();
-            return errorResponse(e);
         } catch (Exception e) {
             LOG.errorf(e, "Unexpected error in registration challenge");
             return internalServerError();
@@ -228,9 +233,6 @@ public class WebAuthnRealmResourceProvider implements RealmResourceProvider {
             LOG.info("Registration verification completed (placeholder)");
             return Response.ok(response).build();
 
-        } catch (WebAuthnException e) {
-            e.log();
-            return errorResponse(e);
         } catch (Exception e) {
             LOG.errorf(e, "Unexpected error in registration verify");
             return internalServerError();
@@ -355,9 +357,6 @@ public class WebAuthnRealmResourceProvider implements RealmResourceProvider {
             LOG.info("Auth verification completed (placeholder)");
             return Response.ok(response).build();
 
-        } catch (WebAuthnException e) {
-            e.log();
-            return errorResponse(e);
         } catch (Exception e) {
             LOG.errorf(e, "Unexpected error in auth verify");
             return internalServerError();

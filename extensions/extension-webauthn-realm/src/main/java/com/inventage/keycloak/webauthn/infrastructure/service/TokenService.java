@@ -1,17 +1,26 @@
 package com.inventage.keycloak.webauthn.infrastructure.service;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.jboss.logging.Logger;
-import org.keycloak.models.*;
+import org.keycloak.models.AuthenticatedClientSessionModel;
+import org.keycloak.models.ClientModel;
+import org.keycloak.models.ClientScopeModel;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
+import org.keycloak.models.UserSessionModel;
 import org.keycloak.protocol.oidc.TokenManager;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.AuthenticationSessionManager;
+import org.keycloak.services.util.DefaultClientSessionContext;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.sessions.RootAuthenticationSessionModel;
 
-import javax.ws.rs.core.UriInfo;
-import java.util.HashMap;
-import java.util.Map;
-
+import jakarta.ws.rs.core.UriInfo;
 /**
  * Service for generating OAuth2/OIDC tokens after successful WebAuthn authentication.
  * Creates authentication sessions and generates access, refresh, and ID tokens.
@@ -50,11 +59,18 @@ public class TokenService {
 
             // Generate tokens using Keycloak's TokenManager
             TokenManager tokenManager = new TokenManager();
+            AuthenticatedClientSessionModel clientSession = userSession.getAuthenticatedClientSessionByClient(client.getId());
+            Set<String> clientScopes = authSession.getClientScopes();
+            Map<String, ClientScopeModel> clientScopeModel = session.clients().getClientScopes(realm, client, false);
+            Set<ClientScopeModel> clientScopesFilter = clientScopes.stream()
+                .map(clientScopeModel::get)
+                .collect(Collectors.toSet());
+            DefaultClientSessionContext clientSessionContext = DefaultClientSessionContext.fromClientSessionAndClientScopes(clientSession, clientScopesFilter , session);
             TokenManager.AccessTokenResponseBuilder responseBuilder = tokenManager
-                    .responseBuilder(realm, client, null, session, userSession, authSession)
-                    .generateAccessToken()
-                    .generateRefreshToken()
-                    .generateIDToken();
+                .responseBuilder(realm, client, null, session, userSession, clientSessionContext)
+                .generateAccessToken()
+                .generateRefreshToken()
+                .generateIDToken();
 
             // Build token response
             var tokenResponse = responseBuilder.build();
@@ -104,7 +120,7 @@ public class TokenService {
 
         // Set client scopes
         if (scope != null && !scope.isEmpty()) {
-            authSession.setClientNote(AuthenticationManager.CLIENT_SESSION_NOTE_ADDITIONAL_REQ_PARAMS_PREFIX + "scope", scope);
+            authSession.setClientNote(AuthenticationManager.KEYCLOAK_SESSION_COOKIE + "scope", scope);
         }
 
         // Mark as authenticated
@@ -151,7 +167,6 @@ public class TokenService {
         }
 
         // Link authentication session to client session
-        clientSession.setAuthMethod("webauthn");
         clientSession.setProtocol("openid-connect");
 
         // Copy notes from auth session to client session
