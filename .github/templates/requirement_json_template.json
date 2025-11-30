@@ -1,0 +1,106 @@
+{
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "title": "",
+      "description": "",
+      "actors": ["user", "systemA"],
+      "trigger": "",
+      "success_criteria": "",
+      "failure_modes": ["", ""],
+      "priority": "high | medium | low",
+      "in_scope": true
+    }
+  ],
+
+  "non_functional_requirements": [
+    {
+      "id": "NFR-LAT-001",
+      "type": "latency | throughput | availability | consistency | security | cost | durability | scalability",
+      "target": "",
+      "constraints": "",
+      "measurement_method": "",
+      "priority": "must | should | optional"
+    }
+  ],
+
+  "load_profile": {
+    "concurrent_users": {
+      "average": 0,
+      "peak": 0
+    },
+    "requests_per_second": {
+      "average": 0,
+      "peak": 0
+    },
+    "data_volume": {
+      "daily_transactions": 0,
+      "initial_db_size_mb": 0,
+      "expected_growth_per_month_mb": 0
+    },
+    "burst_patterns": "none | daily | weekly | seasonal | campaign-driven"
+  },
+
+  "technical_context": {
+    "programming_languages": [],
+    "frameworks": [],
+    "databases": [],
+    "message_brokers": [],
+    "cloud_provider": "",
+    "deployment_infra": "k8s | vm | serverless | hybrid",
+    "existing_system_integrations": [
+      {
+        "name": "",
+        "protocol": "HTTP | gRPC | AMQP | JDBC | custom",
+        "sla": "",
+        "notes": ""
+      }
+    ],
+    "ci_cd": {
+      "repository": "github | gitlab | bitbucket",
+      "pipeline": "",
+      "deployment_strategy": "rolling | blue-green | canary | manual"
+    }
+  },
+
+  "operational_constraints": {
+    "budget_limits_usd_per_month": 0,
+    "security_requirements": {
+      "pii_data": false,
+      "authentication": "jwt | oauth2 | oidc | mTLS",
+      "encryption_in_transit": true,
+      "encryption_at_rest": true,
+      "audit_logging_required": true
+    },
+    "compliance": ["gdpr", "hipaa", "pci", "none"],
+    "logging_retention_days": 30,
+    "dr_targets": {
+      "rto_minutes": 0,
+      "rpo_minutes": 0
+    }
+  },
+
+  "product_constraints": {
+    "supported_user_regions": ["APAC", "US", "EU"],
+    "availability_target": "99.9",
+    "latency_budget_ms": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "data_retention_policy_days": 0
+  },
+
+  "stakeholders": [
+    {
+      "name": "",
+      "role": "product_owner | engineering_manager | architect | SRE | QA",
+      "responsibility": "",
+      "approval_required": true
+    }
+  ],
+
+  "open_questions": [
+    "List any requirements that are unclear or need user confirmation."
+  ]
+}
